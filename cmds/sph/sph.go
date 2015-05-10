@@ -267,6 +267,9 @@ func main() {
   }
 
   setPixmap := func(p *gdk.Pixmap) {
+    if pixmap != nil {
+      pixmap.Unref()
+    }
     pixmap = p
     area.Widget.Emit("expose_event")
   }
