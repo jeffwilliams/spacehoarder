@@ -1,5 +1,5 @@
 /*
-  Package spacehoarder is used to render squarified directory information into a pixmap.
+  Package ui is used to render squarified directory information into a pixmap.
 */
 package ui
 
@@ -87,7 +87,7 @@ filesNum := 0
   for i, block := range blocks {
     // Don't draw the placeholder (non-directory) blocks.
     /*
-    if block.Data == nil {
+    if block.TreeSizer == nil {
       continue
     }*/
 
@@ -107,8 +107,8 @@ filesNum := 0
     pixmap.GetDrawable().DrawRectangle(gc, false, x, y, w, h)
 
     // Draw title
-    if block.Data != nil {
-      dir := &block.Data.(*dirtree.Node).Dir
+    if block.TreeSizer != nil {
+      dir := &block.TreeSizer.(*dirtree.Node).Dir
       style.TitleLayout.SetText(dir.Basename + " (" + FancySize(dir.Size) + ")")
       style.TitleLayout.SetWidth(w*pango.SCALE)
       pixmap.GetDrawable().DrawLayout(gc, x+1, y+1, style.TitleLayout)

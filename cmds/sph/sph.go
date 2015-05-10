@@ -72,7 +72,8 @@ func easyMode() {
 
   margins := &squarify.Margins{3, 3, 20, 3}
 
-  blocks, meta := squarify.Squarify(tree.Root(), squarify.Block{X: 0, Y: 0, W: 640, H: 480}, 2, margins, squarify.DoSort)
+  blocks, meta := squarify.Squarify(tree.Root(), squarify.Rect{X: 0, Y: 0, W: 640, H: 480}, 
+    squarify.Options{MaxDepth: 2, Margins: margins, Sort: squarify.DoSort})
 
   for i, b := range blocks {
     fmt.Println(b)
@@ -127,8 +128,8 @@ func writeSvg(w io.Writer, blocks []squarify.Block) {
   for _, b := range blocks {
     fmt.Fprintf(w, "  <rect x=\"%f\" y=\"%f\" width=\"%f\" height=\"%f\" style=\"fill:rgb(0,0,255);stroke-width:1;stroke:rgb(0,0,0)\"/>\n", b.X, b.Y, b.W, b.H)
     name := "[files "+strconv.Itoa(filesNum)+"]"
-    if b.Data != nil {
-      name = b.Data.(*dirtree.Node).Dir.Basename
+    if b.TreeSizer != nil {
+      name = b.TreeSizer.(*dirtree.Node).Dir.Basename
     } else {
       filesNum += 1
     }
@@ -160,7 +161,8 @@ func PixmapRenderer(ctx *RendererContext) {
     areaW := ctx.area.GetAllocation().Width
     areaH := ctx.area.GetAllocation().Height
     gdk.ThreadsLeave()
-    blocks, meta := squarify.Squarify(tree.Root(), squarify.Block{X: 0, Y: 0, W: float64(areaW), H: float64(areaH)}, ctx.maxDepth, &ctx.margins, squarify.DoSort)
+    blocks, meta := squarify.Squarify(tree.Root(), squarify.Rect{X: 0, Y: 0, W: float64(areaW), H: float64(areaH)},
+      squarify.Options{MaxDepth: ctx.maxDepth, Margins: &ctx.margins, Sort: squarify.DoSort, MinW: 7, MinH: 10})
     gdk.ThreadsEnter()
     pixmap := ui.Render(ctx.area.GetWindow().GetDrawable(), areaW, areaH, blocks, meta, ctx.style)
     ctx.setPixmap(pixmap)
@@ -177,11 +179,16 @@ func PixmapRenderer(ctx *RendererContext) {
           // We're done!
           ctx.ops = nil
 
+
+// Uncomment the below to output an SVG of the blocks
+/*
     gdk.ThreadsEnter()
     areaW := ctx.area.GetAllocation().Width
     areaH := ctx.area.GetAllocation().Height
     gdk.ThreadsLeave()
-blocks, _ := squarify.Squarify(tree.Root(), squarify.Block{X: 0, Y: 0, W: float64(areaW), H: float64(areaH)}, ctx.maxDepth, &ctx.margins, squarify.DoSort)
+
+blocks, _ := squarify.Squarify(tree.Root(), squarify.Rect{X: 0, Y: 0, W: float64(areaW), H: float64(areaH)},
+      squarify.Options{MaxDepth: ctx.maxDepth, Margins: &ctx.margins, Sort: squarify.DoSort})
 // Output an SVG
 f, err := os.Create("/home/shared/Jeff/sph_test.svg")
 if err == nil {
@@ -191,15 +198,6 @@ if err == nil {
 } else {
   fmt.Println("Error opening file:", err)
 }
-/*
-fmt.Printf("\n\n<svg width=\"%d\" height=\"%d\">\n", 100, 100)
-for _, b := range blocks {
-  fmt.Printf("  <rect x=\"%f\" y=\"%f\" width=\"%f\" height=\"%f\" style=\"fill:rgb(0,0,255);stroke-width:1;stroke:rgb(0,0,0)\"/>\n", b.X, b.Y, b.W, b.H)
-  fmt.Printf("  <text x=\"%f\" y=\"%f\" font-size=\"8\">%s</text>\n", b.X, b.Y, b.Data.)
-  fmt.Println("")
-
-}
-fmt.Printf("</svg>\n")
 */
           continue loop
         }
@@ -258,7 +256,7 @@ func main() {
 
   ctx := &RendererContext{
     maxDepth: 6,
-    margins: squarify.Margins{3, 3, 20, 20},
+    margins: squarify.Margins{3, 3, 20, 3},
     ops: ops,
     prog: prog,
     style: style,

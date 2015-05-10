@@ -1,3 +1,11 @@
+// Package squarify implements the Squarified Treemap algorithm of Bruls, Huizing, and Van Wijk:
+//
+//    http://www.win.tue.nl/~vanwijk/stm.pdf
+//
+// The basic idea is to generate a tiling of items of various sizes, each of which may have children which 
+// are tiled nested inside their parent.
+//
+// Tiling is performed by calling the Squarify function.
 package squarify
 
 import (
@@ -10,35 +18,73 @@ type TreeSizer interface {
   Child(i int) TreeSizer
 }
 
-type Block struct {
+type Rect struct {
   X, Y, W, H float64
-  Data TreeSizer
 }
 
-type Area struct {
+type Block struct {
+  Rect
+  TreeSizer TreeSizer
+}
+
+type area struct {
   Area float64
-  Data TreeSizer
+  TreeSizer TreeSizer
 }
 
-type Direction int
+type direction int
 
 const (
-  Vertical Direction = iota
+  Vertical direction = iota
   Horizontal
 )
 
-type Row struct {
-  areas []*Area
+const (
+  DoSort = true
+  DontSort = false
+)
+
+type Margins struct {
+  L,R,T,B float64
+}
+
+type Meta struct {
+  Depth int
+}
+
+type Options struct {
+  MaxDepth int
+  Margins *Margins
+  Sort bool
+  MinW, MinH float64
+}
+
+// Squarify lays out the children of `root` inside the area represented by rect. 
+func Squarify(root TreeSizer, rect Rect, options Options) (blocks []Block, meta []Meta) {
+  if options.MaxDepth <= 0 {
+    options.MaxDepth = 20
+  }
+
+  return squarify(root, Block{Rect: rect}, options, 0)
+}
+/*
+func Squarify(root TreeSizer, rect Rect, maxDepth int, margins *Margins, sort bool) (blocks []Block, meta []Meta) {
+  return squarify(root, Block{Rect: rect}, maxDepth, margins, sort, 0)
+}
+*/
+
+type row struct {
+  areas []*area
   X,Y float64
   min, max float64 // Min and max areas in the row
   sum float64 // Sum of areas
   Width float64
-  Dir Direction
+  Dir direction
 }
 
-func NewRow(dir Direction, width,x,y float64) *Row {
-  return &Row{
-    areas: make([]*Area,0),
+func newRow(dir direction, width,x,y float64) *row {
+  return &row{
+    areas: make([]*area,0),
     Width: width,
     X: x,
     Y: y,
@@ -46,7 +92,7 @@ func NewRow(dir Direction, width,x,y float64) *Row {
   }
 }
 
-func (r *Row) Push(a *Area) {
+func (r *row) push(a *area) {
   if a.Area <= 0 {
     // We use 0 area as a sentinel in min and max.
     panic("Area must be >= 0")
@@ -56,7 +102,7 @@ func (r *Row) Push(a *Area) {
   r.updateCached(a)
 }
 
-func (r *Row) Pop() *Area {
+func (r *row) pop() *area {
   r.min = 0
   r.max = 0
   r.sum = 0
@@ -72,19 +118,19 @@ func (r *Row) Pop() *Area {
   }
 }
 
-func (r *Row) PushTemporarily(a *Area, f func()) {
+func (r *row) pushTemporarily(a *area, f func()) {
   min := r.min
   max := r.max
   sum := r.sum
-  r.Push(a)
+  r.push(a)
   f()
-  r.Pop()
+  r.pop()
   r.min = min
   r.max = max
   r.sum = sum
 }
 
-func (r *Row) calcCached() {
+func (r *row) calcCached() {
   r.min = 0
   r.max = 0
   r.sum = 0
@@ -94,11 +140,11 @@ func (r *Row) calcCached() {
 }
 
 // Number of elements
-func (r Row) Size() int {
+func (r row) size() int {
   return len(r.areas)
 }
 
-func (r *Row) updateCached(a *Area) {
+func (r *row) updateCached(a *area) {
   if r.min <= 0 || a.Area < r.min {
     r.min = a.Area
   }
@@ -110,7 +156,7 @@ func (r *Row) updateCached(a *Area) {
 
 
 // Calculate the worst aspect ratio of all rectangles in the row
-func (r *Row) Worst() float64 {
+func (r *row) worst() float64 {
   if r.min == 0 {
     // We need to calculate min, max, and sum
     r.calcCached()
@@ -127,7 +173,7 @@ func (r *Row) Worst() float64 {
   }
 }
 
-func (r *Row) MakeBlocks() (height float64, blocks []Block) {
+func (r *row) makeBlocks() (height float64, blocks []Block) {
   if r.min == 0 {
     // We need to calculate min, max, and sum
     r.calcCached()
@@ -154,7 +200,7 @@ func (r *Row) MakeBlocks() (height float64, blocks []Block) {
       itemWidth, itemHeight = itemHeight, itemWidth
     }
 
-    blocks = append(blocks, Block{X: x, Y: y, W: itemWidth, H: itemHeight, Data: a.Data})
+    blocks = append(blocks, Block{Rect: Rect{X: x, Y: y, W: itemWidth, H: itemHeight}, TreeSizer: a.TreeSizer})
 
     if r.Dir == Vertical {
       y += itemHeight
@@ -166,51 +212,45 @@ func (r *Row) MakeBlocks() (height float64, blocks []Block) {
   return
 }
 
-type Margins struct {
-  L,R,T,B float64
-}
-
-const (
-  DoSort = true
-  DontSort = false
-)
-
-type Meta struct {
-  Depth int
-}
-
-// Squarify lays out the children of `root` inside the area represented by block. 
-func Squarify(root TreeSizer, block Block, maxDepth int, margins *Margins, sort bool) (blocks []Block, meta []Meta) {
-  return squarify(root, block, maxDepth, margins, sort, 0)
-}
-
-
-func squarify(root TreeSizer, block Block, maxDepth int, margins *Margins, sort bool, depth int) (blocks []Block, meta []Meta) {
+func squarify(root TreeSizer, block Block, options Options, depth int) (blocks []Block, meta []Meta) {
   blocks = make([]Block, 0)
   meta = make([]Meta, 0)
-  if block.W <= 0 || block.H <= 0 || maxDepth == 0 {
+
+  if block.W <= options.MinW || block.H <= options.MinH || depth >= options.MaxDepth {
     return
   }
 
   output := func(newBlocks []Block) {
+    for i := 0; i < len(newBlocks); i++ {
+      // Filter out any blocks that are just placeholders for extra space
+      if newBlocks[i].TreeSizer != nil {
+        // Filter out any blocks that are too small
+        if newBlocks[i].W > options.MinW || newBlocks[i].H > options.MinH {
+          blocks = append(blocks, newBlocks[i])
+          meta = append(meta, Meta{Depth: depth})
+        }
+      }
+    }
+/*
     blocks = append(blocks, newBlocks...)
     for i := 0; i < len(newBlocks); i++ {
       meta = append(meta, Meta{Depth: depth})
     }
+*/
   }
 
-  areas := areas(root, block, sort)
+  areas := areas(root, block, options.Sort)
 
   rowX := block.X
   rowY := block.Y
   freeWidth := block.W
   freeHeight := block.H
 
-  makeRow := func() (row *Row) {
+  makeRow := func() (row *row) {
     if block.W > block.H {
-      row = NewRow(Vertical, freeHeight, rowX, rowY)
+      row = newRow(Vertical, freeHeight, rowX, rowY)
     } else {
-      row = NewRow(Horizontal, freeWidth, rowX, rowY)
+      row = newRow(Horizontal, freeWidth, rowX, rowY)
     }
     return row
   }
@@ -218,19 +258,18 @@ func squarify(root TreeSizer, block Block, maxDepth int, margins *Margins, sort 
   // Decide which direction to create the new row
   row := makeRow()
 
-  for _, area := range areas {
-    if row.Size() > 0 {
-      worstBefore := row.Worst()
+  for _, a := range areas {
+    if row.size() > 0 {
+      worstBefore := row.worst()
       worstAfter := float64(0)
-      row.PushTemporarily(&area, func() {
-        worstAfter = row.Worst()
+      row.pushTemporarily(&a, func() {
+        worstAfter = row.worst()
       })
 
       if worstBefore < worstAfter {
         // It's better to make a new row now.
         // Output the current blocks and make a new row
-        offset, newBlocks := row.MakeBlocks()
-        //blocks = append(blocks, newBlocks...)
+        offset, newBlocks := row.makeBlocks()
         output(newBlocks)
 
         if row.Dir == Vertical {
@@ -245,13 +284,13 @@ func squarify(root TreeSizer, block Block, maxDepth int, margins *Margins, sort 
       }
     }
 
-    cp := &Area{}
-    *cp = area
-    row.Push(cp)
+    cp := &area{}
+    *cp = a
+    row.push(cp)
   }
 
-  if row.Size() > 0 {
-    _, newBlocks := row.MakeBlocks()
+  if row.size() > 0 {
+    _, newBlocks := row.makeBlocks()
     output(newBlocks)
   }
 
@@ -259,15 +298,15 @@ func squarify(root TreeSizer, block Block, maxDepth int, margins *Margins, sort 
   // lay them out inside their parent box. The available area may be reduced by
   // certain size.
   for _, block := range(blocks) {
-    if block.Data != nil {
-      if margins != nil {
-        block.X += margins.L
-        block.Y += margins.T
-        block.W -= margins.L + margins.R
-        block.H -= margins.T + margins.B
+    if block.TreeSizer != nil {
+      if options.Margins != nil {
+        block.X += options.Margins.L
+        block.Y += options.Margins.T
+        block.W -= options.Margins.L + options.Margins.R
+        block.H -= options.Margins.T + options.Margins.B
       }
 
-      newBlocks, newMeta := squarify(block.Data, block, maxDepth-1, margins, sort, depth+1)
+      newBlocks, newMeta := squarify(block.TreeSizer, block, options, depth+1)
       blocks = append(blocks, newBlocks...)
       meta = append(meta, newMeta...)
     }
@@ -277,32 +316,30 @@ func squarify(root TreeSizer, block Block, maxDepth int, margins *Margins, sort 
 }
 
 // Sort areas by area.
-type byArea []Area
+type byAreaAndPlaceholder []area
 
-func (a byArea) Len() int {
+func (a byAreaAndPlaceholder) Len() int {
   return len(a)
 }
 
-func (a byArea) Less(i, j int) bool {
-  //if a[i].Data == a[j].Data {
+func (a byAreaAndPlaceholder) Less(i, j int) bool {
+  //return a[i].Area > a[j].Area
+
+  if a[i].TreeSizer != nil && a[j].TreeSizer != nil || a[i].TreeSizer == nil && a[j].TreeSizer == nil {
     return a[i].Area > a[j].Area
-  /*} else {
-    if a[i].Data != nil {
-      return true
-    } else {
-      return false
-    }
-  }*/
+  } else {
+    return a[i].TreeSizer != nil
+  }
 }
 
-func (a byArea) Swap(i, j int) {
+func (a byAreaAndPlaceholder) Swap(i, j int) {
   a[i], a[j] = a[j], a[i]
 }
 
-func areas(root TreeSizer, block Block, dosort bool) (areas []Area) {
+func areas(root TreeSizer, block Block, dosort bool) (areas []area) {
   blockArea := block.W * block.H
 
-  areas = make([]Area,0)
+  areas = make([]area,0)
   itemsTotalSize := float64(0)
 
   for i := 0; i < root.NumChildren(); i++ {
@@ -313,18 +350,18 @@ func areas(root TreeSizer, block Block, dosort bool) (areas []Area) {
       continue
     }
 
-    areas = append(areas, Area{Area: item.Size()/root.Size()*blockArea, Data: item})
+    areas = append(areas, area{Area: item.Size()/root.Size()*blockArea, TreeSizer: item})
     itemsTotalSize += item.Size()
   }
 
   // Add a placeholder area for extra space
   if itemsTotalSize < root.Size() {
-    area := (root.Size()-itemsTotalSize)/root.Size()*blockArea
-    areas = append(areas, Area{Area: area, Data: nil})
+    a := (root.Size()-itemsTotalSize)/root.Size()*blockArea
+    areas = append(areas, area{Area: a, TreeSizer: nil})
   }
 
   if dosort {
-    sort.Sort(byArea(areas))
+    sort.Sort(byAreaAndPlaceholder(areas))
   }
 
   return
