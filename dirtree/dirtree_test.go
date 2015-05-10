@@ -183,37 +183,33 @@ func TestNodeDel(t *testing.T) {
 
 func TestAddCopy(t *testing.T) {
   p := &Node{}
+  tree := New()
+  tree.SetRootCopy(p, p.Dir.Size)
 
   n1 := &Node{Dir: Directory{Basename: "n1", Size: 10}}
   n2 := &Node{Dir: Directory{Basename: "n2", Size: 20}}
   n3 := &Node{Dir: Directory{Basename: "n3", Size: 30}}
 
   p.Add(n1)
+  tree.AddCopy(n1, n1.Dir.Size)
 
   if p.Dir.Size != 10 {
     t.Fatal("Adding child didn't update root size correctly. Root size is ", p.Dir.Size)
   }
 
   p.Add(n2)
+  tree.AddCopy(n2, n2.Dir.Size)
 
   if p.Dir.Size != 30 {
     t.Fatal("Adding child didn't update root size correctly. Root size is ", p.Dir.Size)
   }
 
   p.Add(n3)
+  tree.AddCopy(n3, n3.Dir.Size)
 
   if p.Dir.Size != 60 {
     t.Fatal("Adding child didn't update root size correctly. Root size is ", p.Dir.Size)
   }
-
-  tree := New()
-  tree.SetRootCopy(p)
-  _, err := tree.AddCopy(n1)
-  if err != nil {
-    t.Fatal("Adding copy failed",err)
-  }
-  tree.AddCopy(n2)
-  tree.AddCopy(n3)
 
   if len(tree.Root().Children) != 3 {
     t.Fatal("Copying children failed: root has",len(tree.Root().Children),"children")
@@ -226,20 +222,21 @@ func TestAddCopy(t *testing.T) {
 
 func TestDelCopy(t *testing.T) {
   p := &Node{}
+  tree := New()
+  tree.SetRootCopy(p, p.Dir.Size)
 
   n1 := &Node{Dir: Directory{Basename: "n1", Size: 10}}
   n2 := &Node{Dir: Directory{Basename: "n2", Size: 20}}
   n3 := &Node{Dir: Directory{Basename: "n3", Size: 30}}
 
   p.Add(n1)
-  p.Add(n2)
-  p.Add(n3)
+  tree.AddCopy(n1, n1.Dir.Size)
 
-  tree := New()
-  tree.SetRootCopy(p)
-  tree.AddCopy(n1)
-  tree.AddCopy(n2)
-  tree.AddCopy(n3)
+  p.Add(n2)
+  tree.AddCopy(n2, n2.Dir.Size)
+
+  p.Add(n3)
+  tree.AddCopy(n3, n3.Dir.Size)
 
   if tree.Root().Dir.Size != 60 {
     t.Fatal("Adding child didn't update root size correctly. Root size is ", tree.Root().Dir.Size)
@@ -289,9 +286,13 @@ func TestDelCopy(t *testing.T) {
 
 func TestAddSubtreeCopy(t *testing.T) {
   p := &Node{}
+  tree := New()
+  tree.SetRootCopy(p, 0)
 
   n1 := &Node{Dir: Directory{Basename: "n1", Size: 10}}
+
   n2 := &Node{Dir: Directory{Basename: "n2", Size: 2}}
+
   n3 := &Node{Dir: Directory{Basename: "n3", Size: 2}}
 
   n1a := &Node{Dir: Directory{Basename: "n1a", Size: 10}}
@@ -301,32 +302,25 @@ func TestAddSubtreeCopy(t *testing.T) {
   n1b1 := &Node{Dir: Directory{Basename: "n1b1", Size: 4}}
 
   p.Add(n1)
+  tree.AddCopy(n1, n1.Dir.Size)
   p.Add(n2)
+  tree.AddCopy(n2, n2.Dir.Size)
   p.Add(n3)
+  tree.AddCopy(n3, n3.Dir.Size)
 
   n1.Add(n1a)
+  tree.AddCopy(n1a, n1a.Dir.Size)
   n1.Add(n1b)
+  tree.AddCopy(n1b, n1b.Dir.Size)
 
   n1a.Add(n1a1)
+  tree.AddCopy(n1a1, n1a1.Dir.Size)
   n1b.Add(n1b1)
+  tree.AddCopy(n1b1, n1b1.Dir.Size)
 
   if p.Dir.Size != 41 {
     t.Fatal("Tree setup didn't calculate size correctly. Root size is ", p.Dir.Size)
   }
-
-  tree := New()
-  tree.SetRootCopy(p)
-  _, err := tree.AddCopy(n1)
-  if err != nil {
-    t.Fatal("Adding copy failed",err)
-  }
-
-  if tree.Root().Dir.Size != 37 {
-    t.Fatal("Adding child didn't update root size correctly. Root size is ", tree.Root().Dir.Size)
-  }
-
-  tree.AddCopy(n2)
-  tree.AddCopy(n3)
 
   if tree.Root().Dir.Size != 41 {
     t.Fatal("Adding child didn't update root size correctly. Root size is ", tree.Root().Dir.Size)
@@ -366,6 +360,8 @@ func TestAddSubtreeCopy(t *testing.T) {
 
 func TestDelSubtreeCopy(t *testing.T) {
   p := &Node{}
+  tree := New()
+  tree.SetRootCopy(p, 0)
 
   n1 := &Node{Dir: Directory{Basename: "n1", Size: 10}}
   n2 := &Node{Dir: Directory{Basename: "n2"}}
@@ -378,23 +374,21 @@ func TestDelSubtreeCopy(t *testing.T) {
   n1b1 := &Node{Dir: Directory{Basename: "n1b1"}}
 
   p.Add(n1)
+  tree.AddCopy(n1, n1.Dir.Size)
   p.Add(n2)
+  tree.AddCopy(n2, n2.Dir.Size)
   p.Add(n3)
+  tree.AddCopy(n3, n3.Dir.Size)
 
   n1.Add(n1a)
+  tree.AddCopy(n1a, n1a.Dir.Size)
   n1.Add(n1b)
+  tree.AddCopy(n1b, n1b.Dir.Size)
 
   n1a.Add(n1a1)
+  tree.AddCopy(n1a1, n1a1.Dir.Size)
   n1b.Add(n1b1)
-
-  tree := New()
-  tree.SetRootCopy(p)
-  _, err := tree.AddCopy(n1)
-  if err != nil {
-    t.Fatal("Adding copy failed",err)
-  }
-  tree.AddCopy(n2)
-  tree.AddCopy(n3)
+  tree.AddCopy(n1b1, n1b1.Dir.Size)
 
   tree.DelCopy(n1)
 
@@ -418,6 +412,8 @@ func TestDelSubtreeCopy(t *testing.T) {
 
 func TestUpdateCopy(t *testing.T) {
   p := &Node{}
+  tree := New()
+  tree.SetRootCopy(p, 0)
 
   n1 := &Node{Dir: Directory{Basename: "n1", Size: 10}}
   n2 := &Node{Dir: Directory{Basename: "n2"}}
@@ -430,14 +426,21 @@ func TestUpdateCopy(t *testing.T) {
   n1b1 := &Node{Dir: Directory{Basename: "n1b1", Size: 5}}
 
   p.Add(n1)
+  n1c,_ := tree.AddCopy(n1, n1.Dir.Size)
   p.Add(n2)
+  tree.AddCopy(n2, n2.Dir.Size)
   p.Add(n3)
+  tree.AddCopy(n3, n3.Dir.Size)
 
   n1.Add(n1a)
+  tree.AddCopy(n1a, n1a.Dir.Size)
   n1.Add(n1b)
+  tree.AddCopy(n1b, n1b.Dir.Size)
 
   n1a.Add(n1a1)
+  tree.AddCopy(n1a1, n1a1.Dir.Size)
   n1b.Add(n1b1)
+  tree.AddCopy(n1b1, n1b1.Dir.Size)
 
   if p.Dir.Size != 60 {
     t.Fatal("Adding node didn't update root size correctly. Root size:", p.Dir.Size)
@@ -452,17 +455,8 @@ func TestUpdateCopy(t *testing.T) {
     t.Fatal("Adding node didn't update size correctly. Size:", n1b.Dir.Size)
   }
 
-  tree := New()
-  tree.SetRootCopy(p)
-  n1c, err := tree.AddCopy(n1)
-  if err != nil {
-    t.Fatal("Adding copy failed",err)
-  }
-  tree.AddCopy(n2)
-  tree.AddCopy(n3)
-
   n1a1.Dir.Size = 11
-  tree.UpdateCopy(n1a1)
+  tree.UpdateCopy(n1a1, n1a1.Dir.Size)
 
   n1ac := childWithBasename(n1c, "n1a")
   n1bc := childWithBasename(n1c, "n1b")

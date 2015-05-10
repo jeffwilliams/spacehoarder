@@ -19,6 +19,7 @@ const (
 type OpData struct {
   Op Op
   Node *Node
+  Size int64
 }
 
 type Filesystem interface {
@@ -51,6 +52,10 @@ func BuildFs(fs Filesystem, basepath string) (ops chan OpData, prog chan string)
   return
 }
 
+func BuildSync(basepath string) *Dirtree {
+  return buildFs(OsFilesystem{}, basepath, nil, nil)
+}
+
 func buildFs(fs Filesystem, basepath string, ops chan OpData, prog chan string) *Dirtree {
 
   if ops != nil {
@@ -67,7 +72,7 @@ func buildFs(fs Filesystem, basepath string, ops chan OpData, prog chan string) 
   tree.Root().Dir.Basename = path.Base(basepath)
 
   if ops != nil {
-    ops <- OpData{Op: Root, Node: tree.Root()}
+    ops <- OpData{Op: Root, Node: tree.Root(), Size: 0}
   }
 
   // Directories to process
@@ -79,7 +84,7 @@ func buildFs(fs Filesystem, basepath string, ops chan OpData, prog chan string) 
     //dir, err := os.Open(node.Dir.Path)
     dir, err := fs.Open(node.Dir.Path)
     if err != nil {
-      fmt.Println("Error opening directory", node.Dir.Path)
+      fmt.Println("Error opening directory", node.Dir.Path, ":", err)
       return
     }
 
@@ -101,6 +106,9 @@ func buildFs(fs Filesystem, basepath string, ops chan OpData, prog chan string) 
           },
         }
         node.Add(ch)
+        if ops != nil {
+          ops <- OpData{Op: Add, Node: ch, Size: 0}
+        }
         work = append(work, ch)
       }
     }
@@ -109,8 +117,7 @@ func buildFs(fs Filesystem, basepath string, ops chan OpData, prog chan string) 
 
     node.UpdateSize(size)
     if ops != nil {
-fmt.Println("Sending add for ", node.Dir.Path)
-      ops <- OpData{Op: Add, Node: node}
+      ops <- OpData{Op: Update, Node: node, Size: size}
     }
   }
 
@@ -133,13 +140,12 @@ fmt.Println("Sending add for ", node.Dir.Path)
 func Apply(t *Dirtree, op OpData) {
   switch op.Op {
   case Root:
-    t.SetRootCopy(op.Node)
+    t.SetRootCopy(op.Node, op.Size)
   case Add:
-fmt.Println("Applying add for ", op.Node.Dir.Path)
-    t.AddCopy(op.Node)
+    t.AddCopy(op.Node, op.Size)
   case Del:
     t.DelCopy(op.Node)
   case Update:
-    t.UpdateCopy(op.Node)
+    t.UpdateCopy(op.Node, op.Size)
   }
 }
