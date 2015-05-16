@@ -4,8 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"github.com/jeffwilliams/spacehoarder/dirtree"
-	"github.com/jeffwilliams/spacehoarder/squarify"
 	"github.com/jeffwilliams/spacehoarder/ui"
+	"github.com/jeffwilliams/squarify"
 	"github.com/mattn/go-gtk/gdk"
 	"github.com/mattn/go-gtk/glib"
 	"github.com/mattn/go-gtk/gtk"
@@ -296,7 +296,6 @@ func main() {
 	area.Connect("expose_event", func(ctx *glib.CallbackContext) {
 		println("got expose event")
 		// This should be wrapped in beginPaint and EndPaint, but those are not exposed in Golang
-		//gc.SetForeground(style.BgColor)
 		if pixmap != nil {
 			gc := gdk.NewGC(pixmap.GetDrawable())
 			area.GetWindow().GetDrawable().DrawDrawable(gc, pixmap.GetDrawable(), 0, 0, 0, 0, -1, -1)
