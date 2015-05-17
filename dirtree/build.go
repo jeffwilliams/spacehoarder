@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"time"
 )
 
 type Op int
@@ -80,8 +81,16 @@ func buildFs(fs Filesystem, basepath string, ops chan OpData, prog chan string) 
 
 	work = append(work, tree.Root())
 
+	updateSize := func(node *Node, size int64) {
+		node.UpdateSize(size)
+		if ops != nil {
+			ops <- OpData{Op: Update, Node: node, Size: size}
+		}
+	}
+
+	ticker := time.NewTicker(300 * time.Millisecond)
+
 	procDir := func(node *Node) {
-		//dir, err := os.Open(node.Dir.Path)
 		dir, err := fs.Open(node.Dir.Path)
 		if err != nil {
 			fmt.Println("Error opening directory", node.Dir.Path, ":", err)
@@ -95,12 +104,14 @@ func buildFs(fs Filesystem, basepath string, ops chan OpData, prog chan string) 
 
 		size := node.Dir.Size
 		for _, fi := range fis {
+			path := node.Dir.Path + string(os.PathSeparator) + fi.Name()
+
 			if fi.Mode().IsRegular() {
 				size += fi.Size()
 			} else if fi.IsDir() {
 				ch := &Node{
 					Dir: Directory{
-						Path:     node.Dir.Path + string(os.PathSeparator) + fi.Name(),
+						Path:     path,
 						Basename: fi.Name(),
 						Size:     0,
 					},
@@ -111,18 +122,21 @@ func buildFs(fs Filesystem, basepath string, ops chan OpData, prog chan string) 
 				}
 				work = append(work, ch)
 			}
+
+			// Send a progress update if this is taking a long time
+			select {
+			case <-ticker.C:
+				prog <- path
+			default:
+			}
 		}
 
 		dir.Close()
 
-		node.UpdateSize(size)
-		if ops != nil {
-			ops <- OpData{Op: Update, Node: node, Size: size}
-		}
+		updateSize(node, size)
 	}
 
 	for len(work) > 0 {
-
 		node := work[len(work)-1]
 		work = work[0 : len(work)-1]
 
@@ -132,6 +146,8 @@ func buildFs(fs Filesystem, basepath string, ops chan OpData, prog chan string) 
 			prog <- node.Dir.Path
 		}
 	}
+
+	ticker.Stop()
 
 	return tree
 }
