@@ -22,11 +22,15 @@ func doclient(basedir string, addr string) {
 		return
 	}
 
+	defer opConn.Close()
+
 	progConn, err := net.Dial("tcp", addr)
 	if err != nil {
 		fmt.Println("Connecting failed:", err)
 		return
 	}
+
+	defer progConn.Close()
 
 	dirtree.Encode(opConn, progConn, ops, prog)
 }
