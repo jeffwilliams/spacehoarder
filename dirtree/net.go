@@ -14,13 +14,16 @@ func Encode(opsW io.Writer, progW io.Writer, ops chan OpData, prog chan string) 
 
 loop:
 	for {
+		if ops == nil && prog == nil {
+			break loop
+		}
+
 		select {
 		case op, ok := <-ops:
 			if !ok {
 				ops = nil
 				continue loop
 			}
-			fmt.Println("Sending op", op)
 			opEnc.Encode(op)
 
 		case f, ok := <-prog:
@@ -32,9 +35,6 @@ loop:
 			progEnc.Encode(f)
 		}
 
-		if ops == nil && progEnc == nil {
-			break loop
-		}
 	}
 }
 
@@ -53,8 +53,6 @@ func Decode(opsR io.Reader, progR io.Reader, ops chan OpData, prog chan string) 
 				fmt.Println("Error decoding op:", err)
 				return
 			}
-
-			fmt.Println("Got op: ", op)
 
 			ops <- op
 		}
