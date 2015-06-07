@@ -12,20 +12,15 @@ import (
 type Op int
 
 const (
-	// Root sets the root of the tree.
-	Root Op = iota
-	// Add adds a node to a Dirtree.
-	Add
-	// Del deletes a node from a Dirtree.
-	Del
-	// Update modifies the contents of a node in a Dirtree.
-	Update
+	Push Op = iota
+	Pop
+	AddSize
 )
 
 // OpData is an operation on a DirTree and it's corresponding data.
 type OpData struct {
 	Op   Op
-	Node *Node
+	Path string
 	Size int64
 }
 
@@ -67,7 +62,7 @@ func BuildFs(fs Filesystem, basepath string) (ops chan OpData, prog chan string)
 	ops = make(chan OpData)
 	prog = make(chan string)
 
-	go buildFs(fs, basepath, ops, prog)
+	go build(fs, basepath, ops, prog)
 
 	return
 }
@@ -75,10 +70,14 @@ func BuildFs(fs Filesystem, basepath string) (ops chan OpData, prog chan string)
 // BuildSync builds a new Dirtree starting from the specified directory `basepath` and returns it when
 // it's complete.
 func BuildSync(basepath string) *Dirtree {
-	return buildFs(OsFilesystem{}, basepath, nil, nil)
+	ops := make(chan OpData)
+	go build(OsFilesystem{}, basepath, ops, nil)
+	tree := New()
+	Apply(tree, ops)
+	return tree
 }
 
-func buildFs(fs Filesystem, basepath string, ops chan OpData, prog chan string) *Dirtree {
+func build(fs Filesystem, basepath string, ops chan OpData, prog chan string) {
 
 	if ops != nil {
 		defer close(ops)
@@ -88,103 +87,130 @@ func buildFs(fs Filesystem, basepath string, ops chan OpData, prog chan string) 
 		defer close(prog)
 	}
 
-	tree := New()
-
-	tree.Root().Dir.Path = basepath
-	tree.Root().Dir.Basename = path.Base(basepath)
-
 	if ops != nil {
-		ops <- OpData{Op: Root, Node: tree.Root(), Size: 0}
+		ops <- OpData{Op: Push, Path: basepath}
 	}
 
 	// Directories to process
-	work := make([]*Node, 0, 1000)
+	work := make([]string, 0, 1000)
 
-	work = append(work, tree.Root())
-
-	updateSize := func(node *Node, size int64) {
-		node.UpdateSize(size)
-		if ops != nil {
-			ops <- OpData{Op: Update, Node: node, Size: size}
-		}
-	}
+	work = append(work, basepath)
 
 	ticker := time.NewTicker(300 * time.Millisecond)
 
-	procDir := func(node *Node) {
-		dir, err := fs.Open(node.Dir.Path)
+	procDir := func(path string) {
+		dir, err := fs.Open(path)
 		if err != nil {
-			fmt.Println("Error opening directory", node.Dir.Path, ":", err)
+			fmt.Println("Error opening directory", path, ":", err)
 			return
 		}
 
 		fis, err := dir.Readdir(-1)
 		if err != nil {
-			fmt.Println("Error processing directory", node.Dir.Path)
+			fmt.Println("Error processing directory", path)
 		}
 
-		size := node.Dir.Size
+		size := int64(0)
 		for _, fi := range fis {
-			path := node.Dir.Path + string(os.PathSeparator) + fi.Name()
+			fpath := path + string(os.PathSeparator) + fi.Name()
 
 			if fi.Mode().IsRegular() {
 				size += fi.Size()
 			} else if fi.IsDir() {
-				ch := &Node{
-					Dir: Directory{
-						Path:     path,
-						Basename: fi.Name(),
-						Size:     0,
-					},
-				}
-				node.Add(ch)
-				if ops != nil {
-					ops <- OpData{Op: Add, Node: ch, Size: 0}
-				}
-				work = append(work, ch)
+				ops <- OpData{Op: Push, Path: fpath}
+				work = append(work, fpath)
 			}
 
 			// Send a progress update if this is taking a long time
 			select {
 			case <-ticker.C:
-				prog <- path
+				if prog != nil {
+					prog <- fpath
+				}
 			default:
 			}
 		}
 
 		dir.Close()
 
-		updateSize(node, size)
+		ops <- OpData{Op: AddSize, Size: size}
 	}
 
 	for len(work) > 0 {
-		node := work[len(work)-1]
+		// Refactor below; use the same code as in Apply.
+		path := work[len(work)-1]
 		work = work[0 : len(work)-1]
 
-		procDir(node)
+		ops <- OpData{Op: Pop}
+
+		procDir(path)
 
 		if prog != nil {
-			prog <- node.Dir.Path
+			prog <- path
 		}
 	}
 
 	ticker.Stop()
-
-	return tree
 }
 
-// Apply applies the operation `op` to the Dirtree `t`.
-// This is meant to be used to apply the operations output by
-// Build and BuildFs for creating a duplicate tree.
-func Apply(t *Dirtree, op OpData) {
-	switch op.Op {
-	case Root:
-		t.SetRootCopy(op.Node, op.Size)
-	case Add:
-		t.AddCopy(op.Node, op.Size)
-	case Del:
-		t.DelCopy(op.Node)
-	case Update:
-		t.UpdateCopy(op.Node, op.Size)
+func Apply(t *Dirtree, ops chan OpData) {
+
+	curNode := (*Node)(nil)
+
+	// Directories to process
+	work := make([]*Node, 0, 1000)
+
+	push := func(op OpData) {
+		node := &Node{Dir: Directory{Path: op.Path, Basename: path.Base(op.Path)}}
+
+		// Push is used to add a child to the current tree node and also
+		// to add the root to the tree. We distinguish by checking if
+		// curNode is nil.
+		if curNode == nil {
+			if t.Root != nil {
+				panic("Apply: curNode is nil but tree Root is not nil")
+			}
+			t.Root = node
+		} else {
+			curNode.Add(node)
+		}
+
+		work = append(work, node)
+	}
+
+	pop := func() {
+		curNode = work[len(work)-1]
+		work = work[0 : len(work)-1]
+	}
+
+	addSize := func(op OpData) {
+		size := curNode.Dir.Size + op.Size
+		curNode.UpdateSize(size)
+	}
+
+	for op := range ops {
+		switch op.Op {
+		case Push:
+			push(op)
+		case Pop:
+			pop()
+		case AddSize:
+			addSize(op)
+		}
+	}
+}
+
+// Same as Apply, but a copy of each OpData in ops is written to outops
+func ApplyAndDup(t *Dirtree, ops chan OpData, outops chan OpData) {
+	applyOps := make(chan OpData)
+	go Apply(t, applyOps)
+
+	defer close(applyOps)
+	defer close(outops)
+
+	for op := range ops {
+		fmt.Println("ApplyAndDup: event")
+		applyOps <- op
+		outops <- op
 	}
 }

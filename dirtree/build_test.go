@@ -127,7 +127,12 @@ func makeTestFs() TestFs {
 func TestBuild(t *testing.T) {
 	fs := makeTestFs()
 
-	tree := buildFs(fs, "/tmp", nil, nil)
+	//tree := buildFs(fs, "/tmp", nil, nil)
+	ops := make(chan OpData)
+	go build(fs, "/tmp", ops, nil)
+
+	tree := New()
+	Apply(tree, ops)
 
 	expected := map[string]int64{
 		"tmp": 65,
@@ -138,7 +143,7 @@ func TestBuild(t *testing.T) {
 
 	detected := map[string]bool{}
 
-	tree.Root().Walk(func(n *Node) {
+	tree.Root.Walk(func(n *Node) {
 		//t.Logf("%s: %v\n", n.Dir.Path, n.Dir.Size)
 		size, ok := expected[n.Dir.Basename]
 		if !ok {
@@ -155,62 +160,5 @@ func TestBuild(t *testing.T) {
 			t.Fatal("Directory with name", k, "was not detected in the tree")
 		}
 	}
-
-}
-
-func TestApply(t *testing.T) {
-	fs := makeTestFs()
-
-	ops := make(chan OpData)
-
-	go buildFs(fs, "/tmp", ops, nil)
-
-	tree := New()
-	for op := range ops {
-		Apply(tree, op)
-	}
-
-	expectBasename := func(n *Node, s string) {
-		if n.Dir.Basename != s {
-			t.Fatalf("Expected directory '%v' but got '%v'", s, n.Dir.Basename)
-		}
-	}
-
-	childNames := func(n *Node) (names []string) {
-		names = make([]string, 0)
-		for _, v := range n.Children {
-			names = append(names, v.Dir.Basename)
-		}
-		return
-	}
-
-	expectChildren := func(n *Node, s []string) {
-		if len(n.Children) != len(s) {
-			t.Fatalf("Expected children '%v' but got '%v'", s, childNames(n))
-		}
-		if !hasBasenames(n.Children, s) {
-			t.Fatalf("Expected children '%v' but got '%v'", s, childNames(n))
-		}
-	}
-
-	tree.Root().Walk(func(n *Node) {
-		t.Logf("%s: %v\n", n.Dir.Path, n.Dir.Size)
-	})
-
-	expectBasename(tree.Root(), "tmp")
-
-	expectChildren(tree.Root(), []string{"a", "b"})
-
-	a := tree.Root().Children[0]
-	b := tree.Root().Children[1]
-
-	if a.Dir.Basename == "b" {
-		t := a
-		a = b
-		b = t
-	}
-
-	expectChildren(a, []string{})
-	expectChildren(b, []string{"dir"})
 
 }

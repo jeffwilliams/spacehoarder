@@ -10,13 +10,16 @@ import (
 	"github.com/mattn/go-gtk/glib"
 	"github.com/mattn/go-gtk/gtk"
 	"io"
+	"net"
 	"os"
 	"runtime/pprof"
 	"strconv"
+	"strings"
 	"time"
 )
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+var server = flag.Bool("server", false, "Run as a server and wait for input from sphclient")
 
 func makeUi() (*gtk.Window, *gtk.DrawingArea, *gtk.Label) {
 	gtk.Init(nil)
@@ -84,7 +87,7 @@ func outputSvg(ctx *RendererContext, tree *dirtree.Dirtree, filename string) {
 	areaH := ctx.area.GetAllocation().Height
 	gdk.ThreadsLeave()
 
-	blocks, _ := squarify.Squarify(tree.Root(), squarify.Rect{X: 0, Y: 0, W: float64(areaW), H: float64(areaH)},
+	blocks, _ := squarify.Squarify(tree.Root, squarify.Rect{X: 0, Y: 0, W: float64(areaW), H: float64(areaH)},
 		squarify.Options{MaxDepth: ctx.maxDepth, Margins: &ctx.margins, Sort: squarify.DoSort})
 
 	// Output an SVG
@@ -104,11 +107,15 @@ func PixmapRenderer(ctx *RendererContext) {
 	tree := dirtree.New()
 
 	render := func() {
+		if tree.Root == nil {
+			return
+		}
+
 		gdk.ThreadsEnter()
 		areaW := ctx.area.GetAllocation().Width
 		areaH := ctx.area.GetAllocation().Height
 		gdk.ThreadsLeave()
-		blocks, meta := squarify.Squarify(tree.Root(), squarify.Rect{X: 0, Y: 0, W: float64(areaW), H: float64(areaH)},
+		blocks, meta := squarify.Squarify(tree.Root, squarify.Rect{X: 0, Y: 0, W: float64(areaW), H: float64(areaH)},
 			squarify.Options{MaxDepth: ctx.maxDepth, Margins: &ctx.margins, Sort: squarify.DoSort, MinW: 7, MinH: 10})
 		gdk.ThreadsEnter()
 		pixmap := ui.Render(ctx.area.GetWindow().GetDrawable(), areaW, areaH, blocks, meta, ctx.style)
@@ -118,16 +125,21 @@ func PixmapRenderer(ctx *RendererContext) {
 
 	var lastRender time.Time
 
+	// Start a goroutine that applies the operations to the tree, and also duplicates them
+	// to ops. The duplicates are read from ops and used to update the pixmap by calling render().
+	ops := make(chan dirtree.OpData)
+	go dirtree.ApplyAndDup(tree, ctx.ops, ops)
+
 loop:
 	for {
 		select {
 		case _ = <-ctx.resize:
 			render()
 
-		case op, ok := <-ctx.ops:
+		case _, ok := <-ops:
 			if !ok {
 				// We're done!
-				ctx.ops = nil
+				ops = nil
 
 				// Uncomment the below to output an SVG of the blocks
 				//outputSvg(ctx, tree, "/home/shared/Jeff/sph_test.svg")
@@ -135,8 +147,6 @@ loop:
 				render()
 				continue loop
 			}
-
-			dirtree.Apply(tree, op)
 
 			if lastRender.IsZero() || time.Now().Sub(lastRender) > 80*time.Millisecond {
 				render()
@@ -148,14 +158,12 @@ loop:
 				ctx.complete(tree)
 				continue loop
 			}
-			fmt.Println(p)
 			gdk.ThreadsEnter()
 			ctx.processed(p)
 			gdk.ThreadsLeave()
 		}
 	}
 
-	fmt.Println("Pixmap renderer done")
 }
 
 type ExposeReason int
@@ -165,6 +173,51 @@ const (
 	UpdatePixmap
 	UpdateProcessedFile
 )
+
+func startServer() (ops chan dirtree.OpData, prog chan string, err error) {
+	err = nil
+
+	// Listen on a random port
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		fmt.Println("Listening failed:", err)
+		return
+	}
+
+	addr := listener.Addr().String()
+	parts := strings.Split(addr, ":")
+	port := ""
+	if len(parts) > 0 {
+		port = parts[len(parts)-1]
+	}
+
+	if len(port) > 0 {
+		fmt.Println("Listening on port", port)
+	} else {
+		fmt.Println("Listening on addr", addr)
+	}
+
+	opConn, err := listener.Accept()
+	if err != nil {
+		fmt.Println("Accept failed: ", err)
+		return
+	}
+
+	progConn, err := listener.Accept()
+	if err != nil {
+		fmt.Println("Accept failed: ", err)
+		return
+	}
+
+	listener.Close()
+
+	ops = make(chan dirtree.OpData)
+	prog = make(chan string)
+
+	dirtree.Decode(opConn, progConn, ops, prog)
+
+	return
+}
 
 func main() {
 	flag.Parse()
@@ -194,8 +247,19 @@ func main() {
 	// Reason we generated expose_event
 	exposeReason := NoReason
 
-	// Start goroutine that explores the directories
-	ops, prog := dirtree.Build(flag.Arg(0))
+	var ops chan dirtree.OpData
+	var prog chan string
+	if *server {
+		// Wait for remote connection
+		var err error
+		ops, prog, err = startServer()
+		if err != nil {
+			return
+		}
+	} else {
+		// Run locally. Start goroutine that explores the directories
+		ops, prog = dirtree.Build(flag.Arg(0))
+	}
 
 	_, area, progressLabel := makeUi()
 
@@ -241,7 +305,11 @@ func main() {
 	}
 
 	ctx.complete = func(t *dirtree.Dirtree) {
-		lastFile = "Completed. Size: " + ui.FancySize(t.Root().Dir.Size)
+		if t.Root != nil {
+			lastFile = "Completed. Size: " + ui.FancySize(t.Root.Dir.Size)
+		} else {
+			lastFile = "Completed. "
+		}
 		exposeReason = UpdateProcessedFile
 		area.Widget.Emit("expose_event")
 	}
@@ -250,6 +318,7 @@ func main() {
 	go PixmapRenderer(ctx)
 
 	area.Connect("expose_event", func(ctx *glib.CallbackContext) {
+		fmt.Println("expose_event")
 		// This should be wrapped in beginPaint and EndPaint, but those are not exposed in Golang
 		exposeReason = NoReason
 		if pixmap != nil && (exposeReason == NoReason || exposeReason == UpdatePixmap) {
@@ -263,6 +332,7 @@ func main() {
 	})
 
 	area.Connect("configure_event", func(_ *glib.CallbackContext) {
+		fmt.Println("configure_event")
 		// Notify the rendering goroutine of a window size change.
 		// We write to the channel nonblockingly to prevent a deadlock:
 		// render thread could be waiting on the GTK ThreadsEnter lock
