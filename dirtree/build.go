@@ -209,7 +209,6 @@ func ApplyAndDup(t *Dirtree, ops chan OpData, outops chan OpData) {
 	defer close(outops)
 
 	for op := range ops {
-		fmt.Println("ApplyAndDup: event")
 		applyOps <- op
 		outops <- op
 	}
