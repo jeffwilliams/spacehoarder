@@ -20,6 +20,7 @@ import (
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 var server = flag.Bool("server", false, "Run as a server and wait for input from sphclient")
+var refreshMilli = flag.Uint("refresh", 80, "Minimum duration between screen refreshes in ms")
 
 func makeUi() (*gtk.Window, *gtk.DrawingArea, *gtk.Label) {
 	gtk.Init(nil)
@@ -103,7 +104,7 @@ func outputSvg(ctx *RendererContext, tree *dirtree.Dirtree, filename string) {
 
 // PixmapRenderer builds a local tree from the operations passed in ops,
 // and repeatedly renders it into a pixmap that is passed to setPixmap
-func PixmapRenderer(ctx *RendererContext) {
+func PixmapRenderer(ctx *RendererContext, renderDeadline time.Duration) {
 	tree := dirtree.New()
 
 	render := func() {
@@ -130,6 +131,12 @@ func PixmapRenderer(ctx *RendererContext) {
 	ops := make(chan dirtree.OpData)
 	go dirtree.ApplyAndDup(tree, ctx.ops, ops)
 
+	doComplete := func() {
+		if ops == nil && ctx.prog == nil {
+			ctx.complete(tree)
+		}
+	}
+
 loop:
 	for {
 		select {
@@ -141,21 +148,25 @@ loop:
 				// We're done!
 				ops = nil
 
+				doComplete()
+
 				// Uncomment the below to output an SVG of the blocks
-				//outputSvg(ctx, tree, "/home/shared/Jeff/sph_test.svg")
+				//outputSvg(ctx, tree, "/tmp/sph_test.svg")
 
 				render()
 				continue loop
 			}
 
-			if lastRender.IsZero() || time.Now().Sub(lastRender) > 80*time.Millisecond {
+			now := time.Now()
+			if lastRender.IsZero() || now.Sub(lastRender) > renderDeadline {
 				render()
+				lastRender = now
 			}
 
 		case p, ok := <-ctx.prog:
 			if !ok {
 				ctx.prog = nil
-				ctx.complete(tree)
+				doComplete()
 				continue loop
 			}
 			gdk.ThreadsEnter()
@@ -315,7 +326,7 @@ func main() {
 	}
 
 	// Start goroutine that renders directory information to a pixmap
-	go PixmapRenderer(ctx)
+	go PixmapRenderer(ctx, time.Duration(*refreshMilli)*time.Millisecond)
 
 	area.Connect("expose_event", func(ctx *glib.CallbackContext) {
 		fmt.Println("expose_event")
