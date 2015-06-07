@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 	"time"
 )
 
@@ -19,9 +19,10 @@ const (
 
 // OpData is an operation on a DirTree and it's corresponding data.
 type OpData struct {
-	Op   Op
-	Path string
-	Size int64
+	Op       Op
+	Path     string
+	Basename string
+	Size     int64
 }
 
 // Filesystem is an abstraction of a filesystem used by BuildFs.
@@ -88,7 +89,7 @@ func build(fs Filesystem, basepath string, ops chan OpData, prog chan string) {
 	}
 
 	if ops != nil {
-		ops <- OpData{Op: Push, Path: basepath}
+		ops <- OpData{Op: Push, Path: basepath, Basename: filepath.Base(basepath)}
 	}
 
 	// Directories to process
@@ -117,7 +118,7 @@ func build(fs Filesystem, basepath string, ops chan OpData, prog chan string) {
 			if fi.Mode().IsRegular() {
 				size += fi.Size()
 			} else if fi.IsDir() {
-				ops <- OpData{Op: Push, Path: fpath}
+				ops <- OpData{Op: Push, Path: fpath, Basename: filepath.Base(fpath)}
 				work = append(work, fpath)
 			}
 
@@ -161,7 +162,7 @@ func Apply(t *Dirtree, ops chan OpData) {
 	work := make([]*Node, 0, 1000)
 
 	push := func(op OpData) {
-		node := &Node{Dir: Directory{Path: op.Path, Basename: path.Base(op.Path)}}
+		node := &Node{Dir: Directory{Path: op.Path, Basename: op.Basename}}
 
 		// Push is used to add a child to the current tree node and also
 		// to add the root to the tree. We distinguish by checking if
