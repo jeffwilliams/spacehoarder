@@ -74,7 +74,7 @@ func BuildSync(basepath string) *Dirtree {
 	ops := make(chan OpData)
 	go build(OsFilesystem{}, basepath, ops, nil)
 	tree := New()
-	Apply(tree, ops)
+	tree.ApplyAll(ops)
 	return tree
 }
 
@@ -154,57 +154,10 @@ func build(fs Filesystem, basepath string, ops chan OpData, prog chan string) {
 	ticker.Stop()
 }
 
-func Apply(t *Dirtree, ops chan OpData) {
-
-	curNode := (*Node)(nil)
-
-	// Directories to process
-	work := make([]*Node, 0, 1000)
-
-	push := func(op OpData) {
-		node := &Node{Dir: Directory{Path: op.Path, Basename: op.Basename}}
-
-		// Push is used to add a child to the current tree node and also
-		// to add the root to the tree. We distinguish by checking if
-		// curNode is nil.
-		if curNode == nil {
-			if t.Root != nil {
-				panic("Apply: curNode is nil but tree Root is not nil")
-			}
-			t.Root = node
-		} else {
-			curNode.Add(node)
-		}
-
-		work = append(work, node)
-	}
-
-	pop := func() {
-		curNode = work[len(work)-1]
-		work = work[0 : len(work)-1]
-	}
-
-	addSize := func(op OpData) {
-		size := curNode.Dir.Size + op.Size
-		curNode.UpdateSize(size)
-	}
-
-	for op := range ops {
-		switch op.Op {
-		case Push:
-			push(op)
-		case Pop:
-			pop()
-		case AddSize:
-			addSize(op)
-		}
-	}
-}
-
 // Same as Apply, but a copy of each OpData in ops is written to outops
 func ApplyAndDup(t *Dirtree, ops chan OpData, outops chan OpData) {
 	applyOps := make(chan OpData)
-	go Apply(t, applyOps)
+	go t.ApplyAll(applyOps)
 
 	defer close(applyOps)
 	defer close(outops)

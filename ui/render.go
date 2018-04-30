@@ -4,6 +4,7 @@
 package ui
 
 import (
+	sh "github.com/jeffwilliams/spacehoarder"
 	"github.com/jeffwilliams/spacehoarder/dirtree"
 	"github.com/jeffwilliams/squarify"
 	"github.com/mattn/go-gtk/gdk"
@@ -109,7 +110,7 @@ func Render(template *gdk.Drawable, width, height int, blocks []squarify.Block, 
 		// Draw title
 		if block.TreeSizer != nil {
 			dir := &block.TreeSizer.(*dirtree.Node).Dir
-			style.TitleLayout.SetText(dir.Basename + " (" + FancySize(dir.Size) + ")")
+			style.TitleLayout.SetText(dir.Basename + " (" + sh.FancySize(dir.Size) + ")")
 			style.TitleLayout.SetWidth(w * pango.SCALE)
 			pixmap.GetDrawable().DrawLayout(gc, x+1, y+1, style.TitleLayout)
 		} else {
