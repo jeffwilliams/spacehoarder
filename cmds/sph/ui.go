@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/gdamore/tcell"
 	"github.com/gdamore/tcell/views"
@@ -64,47 +64,22 @@ func ViewPrint(ctx *TcellPrintContext, frmt string, args ...interface{}) (update
 	return
 }
 
-type DrawDampener struct {
-	screen tcell.Screen
-	ch     chan struct{}
-}
-
-func NewDrawDampener(s tcell.Screen) *DrawDampener {
-	d := DrawDampener{screen: s,
-		ch: make(chan struct{}),
-	}
-
-	go func() {
-		for _ = range d.ch {
-			de := DirtreeDrawEvent(time.Now())
-			d.screen.PostEvent(&de)
-			time.Sleep(200 * time.Millisecond)
-		}
-	}()
-
-	return &d
-}
-
-// Draw schedules a draw event sometime in the future
-func (d DrawDampener) Draw() {
-	select {
-	case d.ch <- struct{}{}:
-
-	default:
-	}
-}
-
 type DirtreeWidget struct {
 	dt        *dt.Dirtree
 	view      views.View
 	listeners map[tcell.EventHandler]interface{}
-	damper    *DrawDampener
+	//damper    *DrawDampener
+	// mutex protects dt.
+	Mutex sync.Mutex
 }
 
 func NewDirtreeWidget(screen tcell.Screen) *DirtreeWidget {
+	dt := dt.New()
+	dt.SortChildren = true
 	return &DirtreeWidget{
-		dt:     dt.New(),
-		damper: NewDrawDampener(screen),
+		dt:        dt,
+		listeners: make(map[tcell.EventHandler]interface{}),
+		//damper: NewDrawDampener(screen),
 	}
 }
 
@@ -161,18 +136,10 @@ func (w DirtreeWidget) HandleEvent(ev tcell.Event) bool {
 				return true
 			}
 		}
-	case *DirtreeOpEvent:
-		w.dt.Apply(ev.OpData)
-		// schedule a draw
-		w.damper.Draw()
-		//w.Draw()
-		return true
 	case *DirtreeDrawEvent:
-		w.Draw()
 		return true
 	case *DirtreeProgEvent:
 		return true
-
 	}
 
 	return false

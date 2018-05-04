@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/gdamore/tcell"
@@ -82,32 +83,36 @@ func (e DirtreeDrawEvent) When() time.Time {
 	return time.Time(e)
 }
 
-func toEvents(screen tcell.Screen, ops chan dt.OpData, prog chan string) {
-	for {
-		var e tcell.Event
+func ApplyAll(screen tcell.Screen, t *dt.Dirtree, m *sync.Mutex, ops chan dt.OpData) {
+
+	ch := make(chan struct{})
+
+	go func() {
+		for _ = range ch {
+			de := DirtreeDrawEvent(time.Now())
+			screen.PostEvent(&de)
+			time.Sleep(1000 * time.Millisecond)
+		}
+	}()
+
+	for op := range ops {
+		m.Lock()
+		t.Apply(op)
+		m.Unlock()
 
 		select {
-		case op, ok := <-ops:
-			if !ok {
-				// We're done!
-				continue
-			}
-
-			e = &DirtreeOpEvent{op, time.Now()}
-
-		case p, ok := <-prog:
-			if !ok {
-				// We're done!
-				t := DirtreeDrawEvent(time.Now())
-				e = &t
-			} else {
-				e = &DirtreeProgEvent{p, time.Now()}
-			}
+		case ch <- struct{}{}:
+		default:
 		}
+	}
 
-		for err := screen.PostEvent(e); err != nil; err = screen.PostEvent(e) {
-			time.Sleep(100 * time.Millisecond)
-		}
+	de := DirtreeDrawEvent(time.Now())
+	screen.PostEvent(&de)
+}
+
+func drop(prog chan string) {
+	for _ = range prog {
+
 	}
 }
 
@@ -121,7 +126,7 @@ func main() {
 
 	defer func() {
 		if r := recover(); r != nil {
-			screen.Fini()
+			//screen.Fini()
 			fmt.Fprintf(os.Stderr, "panic: %v\n", r)
 			debug.PrintStack()
 		}
@@ -130,11 +135,20 @@ func main() {
 	dtw := NewDirtreeWidget(screen)
 
 	app.SetScreen(screen)
-	app.SetRootWidget(dtw)
+
+	panel := views.NewPanel()
+	panel.SetContent(dtw)
+	status := views.NewText()
+	status.SetText("status!")
+	panel.SetStatus(status)
+
+	//app.SetRootWidget(dtw)
+	app.SetRootWidget(panel)
 
 	/*** Build dirtree ***/
 	ops, prog := dt.Build(".")
-	go toEvents(screen, ops, prog)
+	go ApplyAll(screen, dtw.dt, &dtw.Mutex, ops)
+	go drop(prog)
 	/*** End build dirtree ***/
 
 	if e := app.Run(); e != nil {

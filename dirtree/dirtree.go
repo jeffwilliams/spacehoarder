@@ -146,8 +146,9 @@ type applyContext struct {
 // Dirtree is a directory tree where each node has a Size property that's the size of the contents of the directory
 // and all descendent directories.
 type Dirtree struct {
-	Root     *Node
-	applyCtx applyContext
+	Root         *Node
+	applyCtx     applyContext
+	SortChildren bool
 }
 
 // New creates a new, empty Dirtree
@@ -172,6 +173,9 @@ func (t *Dirtree) Apply(op OpData) {
 				panic("Apply: curNode is nil but tree Root is not nil")
 			}
 			t.Root = node
+			if t.SortChildren {
+				t.Root.SortChildren = true
+			}
 		} else {
 			t.applyCtx.curNode.Add(node)
 		}
