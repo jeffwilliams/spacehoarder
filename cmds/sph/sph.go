@@ -7,10 +7,13 @@ import (
 	"sync"
 	"time"
 
+	"flag"
 	"github.com/gdamore/tcell"
 	"github.com/gdamore/tcell/views"
 	dt "github.com/jeffwilliams/spacehoarder/dirtree"
 )
+
+var useOldDrawFlag = flag.Bool("olddraw", false, "Use the old draw implementation")
 
 var app views.Application
 
@@ -117,6 +120,8 @@ func drop(prog chan string) {
 }
 
 func main() {
+
+	flag.Parse()
 
 	screen, err := tcell.NewScreen()
 	if err != nil {

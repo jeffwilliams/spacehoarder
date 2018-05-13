@@ -10,14 +10,14 @@ type Node struct {
 	children []*Node
 }
 
-func (n Node) Parent() Tree {
+func (n Node) GetParent() Tree {
 	if n.parent == nil {
 		return nil
 	}
 	return n.parent
 }
 
-func (n Node) Child(i int) Tree {
+func (n Node) GetChild(i int) Tree {
 	return n.children[i]
 }
 

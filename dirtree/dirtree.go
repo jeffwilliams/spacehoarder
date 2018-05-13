@@ -3,6 +3,7 @@ package dirtree
 import (
 	"sort"
 
+	"github.com/jeffwilliams/spacehoarder/tree"
 	"github.com/jeffwilliams/squarify"
 )
 
@@ -135,9 +136,45 @@ func (n *Node) NumChildren() int {
 
 // Needed to implement TreeSizer
 func (n *Node) Child(i int) squarify.TreeSizer {
+	if i < 0 || i > len(n.Children) {
+		return nil
+	}
 	return n.Children[i]
 }
 
+// Needed to implement tree.Tree
+func (n *Node) GetChild(i int) tree.Tree {
+	if i < 0 || i > len(n.Children) {
+		return nil
+	}
+	return n.Children[i]
+}
+
+// Needed to implement tree.Tree
+func (n *Node) GetParent() tree.Tree {
+	if n.Parent == nil {
+		return nil
+	}
+	return n.Parent
+}
+
+func (n *Node) Depth() int {
+	if n.Parent != nil {
+		return n.Parent.Depth() + 1
+	} else {
+		return 0
+	}
+}
+
+/*
+func (n *Node) Walk(visitor Visitor, depth int) {
+	visitor(n, depth)
+
+	for _, ch := range n.Children {
+		ch.Walk(visitor, depth+1)
+	}
+}
+*/
 type applyContext struct {
 	curNode *Node
 	work    []*Node

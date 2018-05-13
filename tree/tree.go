@@ -1,8 +1,8 @@
 package tree
 
 type Tree interface {
-	Parent() Tree
-	Child(i int) Tree
+	GetParent() Tree
+	GetChild(i int) Tree
 	NumChildren() int
 }
 
@@ -63,7 +63,7 @@ func walk(tree Tree, visitor Visitor, dir WalkDirection, order WalkOrder, depth 
 		}
 
 		for ; i != end; i += inc {
-			ch := tree.Child(i)
+			ch := tree.GetChild(i)
 			walk(ch, visitor, dir, order, depth+1, false)
 		}
 
@@ -76,13 +76,13 @@ func walk(tree Tree, visitor Visitor, dir WalkDirection, order WalkOrder, depth 
 
 // Walk the siblings of `tree` which has depth `depth`.
 func walkSiblings(tree Tree, visitor Visitor, dir WalkDirection, order WalkOrder, depth int) {
-	if tree.Parent() == nil {
+	if tree.GetParent() == nil {
 		return
 	}
 
 	i := 0
 	inc := 1
-	end := tree.Parent().NumChildren()
+	end := tree.GetParent().NumChildren()
 
 	if dir == Reverse {
 		i = end - 1
@@ -93,7 +93,53 @@ func walkSiblings(tree Tree, visitor Visitor, dir WalkDirection, order WalkOrder
 	ignore := true
 
 	for ; i != end; i += inc {
-		ch := tree.Parent().Child(i)
+		ch := tree.GetParent().GetChild(i)
+
+		if ignore {
+			if ch == tree {
+				ignore = false
+			}
+			continue
+		}
+
+		walk(ch, visitor, dir, order, depth, false)
+	}
+
+	if tree.GetParent() != nil && order == PostOrder {
+		visitor(tree.GetParent(), depth-1)
+	}
+	walkSiblings(tree.GetParent(), visitor, dir, order, depth-1)
+}
+
+/*
+func Next(tree Tree, visitor Visitor, dir WalkDirection, order WalkOrder, depth int, skip bool) {
+	if tree == nil {
+		return
+	}
+
+	// Get first child.
+	if order == PreOrder && tree.NumChildren() > 0 {
+		return tree.GetChild(0)
+	}
+
+	// Nope, get next sibling
+	if tree.GetParent() == nil {
+		return
+	}
+
+	i := 0
+	inc := 1
+	end := tree.GetParent().NumChildren()
+
+	if dir == Reverse {
+		i = end - 1
+		inc = -1
+		end = -1
+	}
+
+	ignore := true
+	for ; i != end; i += inc {
+		ch := tree.GetParent().GetChild(i)
 
 		if ch == tree {
 			ignore = false
@@ -109,8 +155,5 @@ func walkSiblings(tree Tree, visitor Visitor, dir WalkDirection, order WalkOrder
 		walk(ch, visitor, dir, order, depth, false)
 	}
 
-	if tree.Parent() != nil && order == PostOrder {
-		visitor(tree.Parent(), depth-1)
-	}
-	walkSiblings(tree.Parent(), visitor, dir, order, depth-1)
 }
+*/
