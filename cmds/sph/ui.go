@@ -65,6 +65,74 @@ func ViewPrint(ctx *TcellPrintContext, frmt string, args ...interface{}) (update
 	return
 }
 
+type TreeNodeFlags uint8
+
+const (
+	TreeNodeFlagExpanded TreeNodeFlags = 1 << iota
+	// TreeNodeFlagVisible is false if an ancestor is not expanded.
+	TreeNodeFlagHidden
+)
+
+var defaultTreeNodeFlags TreeNodeFlags
+
+func treeNodeFlags(n *dt.Node) TreeNodeFlags {
+	if n.UserData != nil {
+		return n.UserData.(TreeNodeFlags)
+	}
+	return defaultTreeNodeFlags
+}
+
+func setTreeNodeFlags(n *dt.Node, f TreeNodeFlags) {
+	n.UserData = f
+}
+
+func (t *TreeNodeFlags) Set(f TreeNodeFlags) TreeNodeFlags {
+	*t = *t | f
+	return *t
+}
+
+func (t *TreeNodeFlags) Unset(f TreeNodeFlags) TreeNodeFlags {
+	*t = *t &^ f
+	return *t
+}
+
+func (t TreeNodeFlags) IsSet(f TreeNodeFlags) bool {
+	return (t & f) > 0
+}
+
+func updateHiddenFlag(n *dt.Node) {
+	// If any ancestor is collapsed, the node is hidden.
+	hidden := false
+	if n.Parent != nil {
+		for n2 := n.Parent; n2 != nil; n2 = n2.Parent {
+			if !treeNodeFlags(n2).IsSet(TreeNodeFlagExpanded) {
+				hidden = true
+				break
+			}
+		}
+	}
+
+	f := treeNodeFlags(n)
+	if hidden {
+		setTreeNodeFlags(n, f.Set(TreeNodeFlagHidden))
+	} else {
+		setTreeNodeFlags(n, f.Unset(TreeNodeFlagHidden))
+	}
+}
+
+func updateHiddenFlagOnDescendants(n *dt.Node) {
+	visitor := func(t tree.Tree, depth int) (cont bool) {
+		cont = true
+		if n == t {
+			return
+		}
+		updateHiddenFlag(t.(*dt.Node))
+		return
+	}
+
+	tree.Walk(n, visitor, tree.Forward, tree.PreOrder, n.Depth(), false)
+}
+
 type DirtreeWidget struct {
 	dt        *dt.Dirtree
 	view      views.View
@@ -86,7 +154,7 @@ func NewDirtreeWidget(screen tcell.Screen) *DirtreeWidget {
 	}
 }
 
-func (w DirtreeWidget) Draw() {
+func (w *DirtreeWidget) Draw() {
 	if *useOldDrawFlag {
 		w.drawOld()
 	} else {
@@ -94,7 +162,7 @@ func (w DirtreeWidget) Draw() {
 	}
 }
 
-func (w DirtreeWidget) clampSelectedRow() {
+func (w *DirtreeWidget) clampSelectedRow() {
 	_, maxY := w.view.Size()
 	if w.selectedRow < 0 {
 		w.selectedRow = 0
@@ -104,14 +172,19 @@ func (w DirtreeWidget) clampSelectedRow() {
 	}
 }
 
-func (w DirtreeWidget) draw() {
+func (w *DirtreeWidget) draw() {
 	if w.dt == nil || w.view == nil {
 		return
 	}
 
+	w.Mutex.Lock()
+	defer w.Mutex.Unlock()
+
 	if w.selectedNode == nil && w.dt.Root != nil {
 		w.selectedNode = w.dt.Root.Child(0).(*dt.Node)
 	}
+
+	debugOrigSelectedNode := w.selectedNode
 
 	w.view.Clear()
 
@@ -125,7 +198,11 @@ func (w DirtreeWidget) draw() {
 	printNode := func(n *dt.Node, depth, y int) {
 		ctx.X = 0
 		ctx.Y = y
-		ctx = ViewPrint(&ctx, "%s+ ", strings.Repeat(" ", depth*2))
+		sym := "+"
+		if treeNodeFlags(n)&TreeNodeFlagExpanded > 0 {
+			sym = "-"
+		}
+		ctx = ViewPrint(&ctx, "%s%s ", strings.Repeat(" ", depth*2), sym)
 		origStyle := ctx.Style
 		ctx.Style = ctx.Style.Foreground(tcell.Color(172))
 		ctx = ViewPrint(&ctx, "[%s]", sh.FancySize(n.Dir.Size))
@@ -147,11 +224,16 @@ func (w DirtreeWidget) draw() {
 
 	y := w.selectedRow - 1
 	delta := -1
+	_, maxY := w.view.Size()
 
-	visitor := func(t tree.Tree, depth int) (cont, skipChildren bool) {
+	visitor := func(t tree.Tree, depth int) (cont bool) {
 		n := t.(*dt.Node)
 
 		cont = true
+		if treeNodeFlags(n)&TreeNodeFlagHidden > 0 {
+			return
+		}
+
 		if n == w.dt.Root {
 			return
 		}
@@ -162,6 +244,10 @@ func (w DirtreeWidget) draw() {
 
 		if y == w.selectedRow {
 			ctx.Style = ctx.Style.Background(tcell.ColorBlue)
+			// debug:
+			if w.selectedNode == nil {
+				ctx.Style = ctx.Style.Background(tcell.ColorRed)
+			}
 		} else {
 			ctx.Style = tcell.StyleDefault
 		}
@@ -178,8 +264,14 @@ func (w DirtreeWidget) draw() {
 	y = w.selectedRow
 	delta = 1
 
-	//tree.Walk(w.selectedNode, visitor, tree.Forward, tree.PreOrder, w.selectedNode.Depth(), true)
 	tree.Walk(w.selectedNode, visitor, tree.Forward, tree.PreOrder, w.selectedNode.Depth()-1, false)
+
+	if debugOrigSelectedNode != w.selectedNode {
+		ctx.X = 0
+		ctx.Y = 0
+		ctx.Style = ctx.Style.Background(tcell.ColorRed)
+		ctx = ViewPrint(&ctx, "[dbg] selectedNode changed.")
+	}
 
 }
 
@@ -225,7 +317,40 @@ func (w DirtreeWidget) drawOld() {
 func (w DirtreeWidget) Resize() {
 }
 
-func (w DirtreeWidget) HandleEvent(ev tcell.Event) bool {
+func (w *DirtreeWidget) nodeBelow() *dt.Node {
+	nxt := tree.Next(w.selectedNode, tree.Forward, tree.PreOrder)
+	for nxt != nil && treeNodeFlags(nxt.(*dt.Node))&TreeNodeFlagHidden > 0 {
+		nxt = tree.Next(nxt, tree.Forward, tree.PreOrder)
+	}
+
+	if nxt == nil {
+		return nil
+	}
+	return nxt.(*dt.Node)
+}
+
+func (w *DirtreeWidget) nodeAbove() *dt.Node {
+	nxt := tree.Tree(w.selectedNode)
+	for nxt != nil {
+		prv := nxt
+		nxt = tree.Next(nxt, tree.Reverse, tree.PostOrder)
+
+		if nxt.(*dt.Node) == w.dt.Root {
+			nxt = prv
+			break
+		}
+
+		if treeNodeFlags(nxt.(*dt.Node))&TreeNodeFlagHidden == 0 {
+			break
+		}
+	}
+	if nxt == nil {
+		return nil
+	}
+	return nxt.(*dt.Node)
+}
+
+func (w *DirtreeWidget) HandleEvent(ev tcell.Event) bool {
 	switch ev := ev.(type) {
 	case *tcell.EventKey:
 		switch ev.Key() {
@@ -235,15 +360,60 @@ func (w DirtreeWidget) HandleEvent(ev tcell.Event) bool {
 				app.Quit()
 				return true
 			}
+		case tcell.KeyDown:
+			if w.selectedNode != nil {
+				w.Mutex.Lock()
+
+				nxt := w.nodeBelow()
+				if nxt != nil && w.selectedNode != nxt {
+					w.selectedNode = nxt
+					w.selectedRow += 1
+					w.clampSelectedRow()
+				}
+				w.Mutex.Unlock()
+			}
+			return true
+		case tcell.KeyUp:
+			if w.selectedNode != nil {
+				w.Mutex.Lock()
+
+				nxt := w.nodeAbove()
+				if nxt != nil {
+					w.selectedNode = nxt
+					//setStatus("debug: set selected to %p %v (root is %p %v)", w.selectedNode, w.selectedNode, w.dt.Root, w.dt.Root)
+				}
+				w.selectedRow -= 1
+				w.clampSelectedRow()
+				w.Mutex.Unlock()
+			}
+			return true
+		case tcell.KeyCR:
+			setStatus("debug: you hit enter")
+			if w.selectedNode != nil {
+				w.Mutex.Lock()
+				flags := treeNodeFlags(w.selectedNode)
+				if flags.IsSet(TreeNodeFlagExpanded) {
+					setTreeNodeFlags(w.selectedNode, flags.Unset(TreeNodeFlagExpanded))
+				} else {
+					setTreeNodeFlags(w.selectedNode, flags.Set(TreeNodeFlagExpanded))
+				}
+				updateHiddenFlagOnDescendants(w.selectedNode)
+				w.Mutex.Unlock()
+			}
+			return true
+
+		case tcell.KeyHome:
+			w.Mutex.Lock()
+			if w.dt.Root != nil {
+				w.selectedNode = w.dt.Root.Child(0).(*dt.Node)
+				w.selectedRow = 0
+			}
+			w.Mutex.Unlock()
 		}
 	case *DirtreeDrawEvent:
 		return true
 	case *DirtreeProgEvent:
 		return true
-	case tcell.KeyDown:
-		w.clampSelectedRow()
-		w.selectedRow += 1
-		w.clampSelectedRow()
 	}
 
 	return false

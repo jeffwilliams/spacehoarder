@@ -17,6 +17,15 @@ var useOldDrawFlag = flag.Bool("olddraw", false, "Use the old draw implementatio
 
 var app views.Application
 
+var status *views.Text
+
+func setStatus(s string, args ...interface{}) {
+	if status != nil {
+		msg := fmt.Sprintf(s, args...)
+		status.SetText(msg)
+	}
+}
+
 // MainText is simply a views.Text, but that overrides the
 // HandleEvent method so that it can quit the application.
 type MainText struct {
@@ -100,7 +109,14 @@ func ApplyAll(screen tcell.Screen, t *dt.Dirtree, m *sync.Mutex, ops chan dt.OpD
 
 	for op := range ops {
 		m.Lock()
-		t.Apply(op)
+		added := t.Apply(op)
+		if added != nil {
+			updateHiddenFlag(added)
+		}
+		if added == t.Root {
+			// Root node is always expanded
+			setTreeNodeFlags(t.Root, treeNodeFlags(t.Root)|TreeNodeFlagExpanded)
+		}
 		m.Unlock()
 
 		select {
@@ -143,7 +159,7 @@ func main() {
 
 	panel := views.NewPanel()
 	panel.SetContent(dtw)
-	status := views.NewText()
+	status = views.NewText()
 	status.SetText("status!")
 	panel.SetStatus(status)
 

@@ -193,7 +193,7 @@ func New() *Dirtree {
 	return &Dirtree{}
 }
 
-func (t *Dirtree) Apply(op OpData) {
+func (t *Dirtree) Apply(op OpData) (added *Node) {
 	if t.applyCtx.work == nil {
 		// Directories to process
 		t.applyCtx.work = make([]*Node, 0, 1000)
@@ -201,6 +201,7 @@ func (t *Dirtree) Apply(op OpData) {
 
 	push := func(op OpData) {
 		node := &Node{Dir: Directory{Path: op.Path, Basename: op.Basename}}
+		added = node
 
 		// Push is used to add a child to the current tree node and also
 		// to add the root to the tree. We distinguish by checking if
@@ -238,6 +239,7 @@ func (t *Dirtree) Apply(op OpData) {
 	case AddSize:
 		addSize(op)
 	}
+	return
 }
 
 func (t *Dirtree) ApplyAll(ops chan OpData) {
