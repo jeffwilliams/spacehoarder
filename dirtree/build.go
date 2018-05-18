@@ -1,7 +1,6 @@
 package dirtree
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,10 +18,11 @@ const (
 
 // OpData is an operation on a DirTree and it's corresponding data.
 type OpData struct {
-	Op       Op
-	Path     string
-	Basename string
-	Size     int64
+	Op           Op
+	Path         string
+	Basename     string
+	Size         int64
+	SizeAccurate bool
 }
 
 // Filesystem is an abstraction of a filesystem used by BuildFs.
@@ -89,7 +89,7 @@ func build(fs Filesystem, basepath string, ops chan OpData, prog chan string) {
 	}
 
 	if ops != nil {
-		ops <- OpData{Op: Push, Path: basepath, Basename: filepath.Base(basepath)}
+		ops <- OpData{Op: Push, Path: basepath, Basename: filepath.Base(basepath), SizeAccurate: true}
 	}
 
 	// Directories to process
@@ -100,15 +100,19 @@ func build(fs Filesystem, basepath string, ops chan OpData, prog chan string) {
 	ticker := time.NewTicker(300 * time.Millisecond)
 
 	procDir := func(path string) {
+		accurate := true
+
 		dir, err := fs.Open(path)
 		if err != nil {
-			fmt.Println("Error opening directory", path, ":", err)
+			//fmt.Println("Error opening directory", path, ":", err)
+			ops <- OpData{Op: AddSize, Size: 0, SizeAccurate: false}
 			return
 		}
 
 		fis, err := dir.Readdir(-1)
 		if err != nil {
-			fmt.Println("Error processing directory", path)
+			//fmt.Println("Error processing directory", path)
+			accurate = false
 		}
 
 		size := int64(0)
@@ -118,7 +122,7 @@ func build(fs Filesystem, basepath string, ops chan OpData, prog chan string) {
 			if fi.Mode().IsRegular() {
 				size += fi.Size()
 			} else if fi.IsDir() {
-				ops <- OpData{Op: Push, Path: fpath, Basename: filepath.Base(fpath)}
+				ops <- OpData{Op: Push, Path: fpath, Basename: filepath.Base(fpath), SizeAccurate: true}
 				work = append(work, fpath)
 			}
 
@@ -134,7 +138,7 @@ func build(fs Filesystem, basepath string, ops chan OpData, prog chan string) {
 
 		dir.Close()
 
-		ops <- OpData{Op: AddSize, Size: size}
+		ops <- OpData{Op: AddSize, Size: size, SizeAccurate: accurate}
 	}
 
 	for len(work) > 0 {

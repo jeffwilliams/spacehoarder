@@ -10,6 +10,7 @@ import (
 	"flag"
 	"github.com/gdamore/tcell"
 	"github.com/gdamore/tcell/views"
+	sh "github.com/jeffwilliams/spacehoarder"
 	dt "github.com/jeffwilliams/spacehoarder/dirtree"
 )
 
@@ -26,37 +27,7 @@ func setStatus(s string, args ...interface{}) {
 	}
 }
 
-// MainText is simply a views.Text, but that overrides the
-// HandleEvent method so that it can quit the application.
-type MainText struct {
-	vp *views.ViewPort
-	views.Text
-}
-
-func (m *MainText) HandleEvent(ev tcell.Event) bool {
-	switch ev := ev.(type) {
-	case *tcell.EventKey:
-		switch ev.Key() {
-		case tcell.KeyRune:
-			switch ev.Rune() {
-			case 'A', 'a':
-				m.Text.SetText("a")
-			case 'Q', 'q':
-				app.Quit()
-				return true
-			}
-		case tcell.KeyLeft:
-			m.Text.SetText("<-")
-		case tcell.KeyRight:
-			m.Text.SetText("->")
-		case tcell.KeyDown:
-			m.Text.SetText("v")
-		}
-	}
-
-	return m.Text.HandleEvent(ev)
-}
-
+/*
 func BuildSampleDirtree() (tree *dt.Dirtree) {
 	tree = &dt.Dirtree{Root: &dt.Node{Dir: dt.Directory{"/tmp", "tmp", 100}, SortChildren: true}}
 
@@ -70,7 +41,7 @@ func BuildSampleDirtree() (tree *dt.Dirtree) {
 	n.Add(&dt.Node{Dir: dt.Directory{"/tmp/stuff/music/old", "old", 10}})
 	return
 }
-
+*/
 type DirtreeOpEvent struct {
 	dt.OpData
 	Time time.Time
@@ -112,6 +83,7 @@ func ApplyAll(screen tcell.Screen, t *dt.Dirtree, m *sync.Mutex, ops chan dt.OpD
 		added := t.Apply(op)
 		if added != nil {
 			updateHiddenFlag(added)
+			setStatus("Processing %s", added.Dir.Path)
 		}
 		if added == t.Root {
 			// Root node is always expanded
@@ -125,6 +97,11 @@ func ApplyAll(screen tcell.Screen, t *dt.Dirtree, m *sync.Mutex, ops chan dt.OpD
 		}
 	}
 
+	if t.Root != nil {
+		setStatus("Completed. Total %s", sh.FancySize(t.Root.Dir.Size))
+	} else {
+		setStatus("Completed. ")
+	}
 	de := DirtreeDrawEvent(time.Now())
 	screen.PostEvent(&de)
 }
@@ -160,10 +137,9 @@ func main() {
 	panel := views.NewPanel()
 	panel.SetContent(dtw)
 	status = views.NewText()
-	status.SetText("status!")
+	status.SetText("Welcome to spacehoarder")
 	panel.SetStatus(status)
 
-	//app.SetRootWidget(dtw)
 	app.SetRootWidget(panel)
 
 	/*** Build dirtree ***/

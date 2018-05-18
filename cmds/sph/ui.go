@@ -205,7 +205,11 @@ func (w *DirtreeWidget) draw() {
 		ctx = ViewPrint(&ctx, "%s%s ", strings.Repeat(" ", depth*2), sym)
 		origStyle := ctx.Style
 		ctx.Style = ctx.Style.Foreground(tcell.Color(172))
-		ctx = ViewPrint(&ctx, "[%s]", sh.FancySize(n.Dir.Size))
+		acc := ""
+		if !n.Dir.SizeAccurate {
+			acc = "?"
+		}
+		ctx = ViewPrint(&ctx, "[%s%s]", sh.FancySize(n.Dir.Size), acc)
 		ctx.Style = origStyle
 		ViewPrint(&ctx, " %s", n.Dir.Basename)
 	}

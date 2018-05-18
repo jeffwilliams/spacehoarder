@@ -39,7 +39,7 @@ func (n *Node) add(child *Node, updateSize bool) {
 	child.SortChildren = n.SortChildren
 	n.sortChildren()
 	if updateSize {
-		n.addSize(child.Dir.Size)
+		n.addSize(child.Dir.Size, true)
 	}
 }
 
@@ -65,7 +65,7 @@ func (n *Node) del(child *Node, updateSize bool) {
 			n.Children = n.Children[0 : len(n.Children)-1]
 
 			if updateSize {
-				n.addSize(-v.Dir.Size)
+				n.addSize(-v.Dir.Size, true)
 			}
 			break
 		}
@@ -74,16 +74,19 @@ func (n *Node) del(child *Node, updateSize bool) {
 }
 
 // UpdateSize updates the size of the directory in the node, and updates the size of the ancestors as well.
-func (n *Node) UpdateSize(size int64) {
+func (n *Node) UpdateSize(size int64, sizeAccurate bool) {
 	delta := size - n.Dir.Size
-	n.addSize(delta)
+	n.addSize(delta, sizeAccurate)
 }
 
 // Add size bytes to the size of this node and all ancestors.
-func (n *Node) addSize(size int64) {
+func (n *Node) addSize(size int64, sizeAccurate bool) {
 	n.Dir.Size += size
+	if n.Dir.SizeAccurate {
+		n.Dir.SizeAccurate = sizeAccurate
+	}
 	if n.Parent != nil {
-		n.Parent.addSize(size)
+		n.Parent.addSize(size, sizeAccurate)
 	}
 	n.sortChildren()
 }
@@ -200,7 +203,7 @@ func (t *Dirtree) Apply(op OpData) (added *Node) {
 	}
 
 	push := func(op OpData) {
-		node := &Node{Dir: Directory{Path: op.Path, Basename: op.Basename}}
+		node := &Node{Dir: Directory{Path: op.Path, Basename: op.Basename, SizeAccurate: true}}
 		added = node
 
 		// Push is used to add a child to the current tree node and also
@@ -228,7 +231,7 @@ func (t *Dirtree) Apply(op OpData) (added *Node) {
 
 	addSize := func(op OpData) {
 		size := t.applyCtx.curNode.Dir.Size + op.Size
-		t.applyCtx.curNode.UpdateSize(size)
+		t.applyCtx.curNode.UpdateSize(size, op.SizeAccurate)
 	}
 
 	switch op.Op {
