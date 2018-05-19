@@ -1,6 +1,7 @@
 package dirtree
 
 import (
+	sh "github.com/jeffwilliams/spacehoarder"
 	"io"
 	"os"
 	"path/filepath"
@@ -30,6 +31,9 @@ type Filesystem interface {
 	// Open opens a file with the specified path. If an error occurs opening the file
 	// then err is non-nil on return.
 	Open(path string) (file File, err error)
+
+	// DeviceId returns an identifier for the device/mount that the path resides on
+	DeviceId(path string) (id uint64, err error)
 }
 
 // File is an abstraction of a file.
@@ -47,38 +51,42 @@ func (r OsFilesystem) Open(path string) (file File, err error) {
 	return os.Open(path)
 }
 
+func (r OsFilesystem) DeviceId(path string) (id uint64, err error) {
+	return sh.GetFsDevId(path)
+}
+
 // Build builds a new Dirtree starting from the specified directory `basepath` and writes all
 // the operations performed to the Dirtree to the ops channel so that a copy of the Dirtree can be
 // made in a different goroutine. The paths processed are written to the channel prog.
-func Build(basepath string) (ops chan OpData, prog chan string) {
-	return BuildFs(OsFilesystem{}, basepath)
+func Build(basepath string, oneFs bool) (ops chan OpData, prog chan string) {
+	return BuildFs(OsFilesystem{}, basepath, oneFs)
 }
 
 // BuildFs builds a new Dirtree starting from the specified directory `basepath` and writes all
 // the operations performed to the Dirtree to the ops channel so that a copy of the Dirtree can be
 // made in a different goroutine. The paths processed are written to the channel prog.
 // The Filesystem fs is used for opening files.
-func BuildFs(fs Filesystem, basepath string) (ops chan OpData, prog chan string) {
+func BuildFs(fs Filesystem, basepath string, oneFs bool) (ops chan OpData, prog chan string) {
 
 	ops = make(chan OpData)
 	prog = make(chan string)
 
-	go build(fs, basepath, ops, prog)
+	go build(fs, basepath, ops, prog, oneFs)
 
 	return
 }
 
 // BuildSync builds a new Dirtree starting from the specified directory `basepath` and returns it when
 // it's complete.
-func BuildSync(basepath string) *Dirtree {
+func BuildSync(basepath string, oneFs bool) *Dirtree {
 	ops := make(chan OpData)
-	go build(OsFilesystem{}, basepath, ops, nil)
+	go build(OsFilesystem{}, basepath, ops, nil, oneFs)
 	tree := New()
 	tree.ApplyAll(ops)
 	return tree
 }
 
-func build(fs Filesystem, basepath string, ops chan OpData, prog chan string) {
+func build(fs Filesystem, basepath string, ops chan OpData, prog chan string, oneFs bool) {
 
 	if ops != nil {
 		defer close(ops)
@@ -94,6 +102,11 @@ func build(fs Filesystem, basepath string, ops chan OpData, prog chan string) {
 
 	// Directories to process
 	work := make([]string, 0, 1000)
+
+	baseDevId, err := fs.DeviceId(basepath)
+	if oneFs && err != nil {
+		return
+	}
 
 	work = append(work, basepath)
 
@@ -122,6 +135,15 @@ func build(fs Filesystem, basepath string, ops chan OpData, prog chan string) {
 			if fi.Mode().IsRegular() {
 				size += fi.Size()
 			} else if fi.IsDir() {
+
+				if oneFs {
+					devId, err := fs.DeviceId(fpath)
+
+					if err == nil && baseDevId != devId {
+						continue
+					}
+				}
+
 				ops <- OpData{Op: Push, Path: fpath, Basename: filepath.Base(fpath), SizeAccurate: true}
 				work = append(work, fpath)
 			}

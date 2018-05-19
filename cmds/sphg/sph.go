@@ -270,7 +270,7 @@ func main() {
 		}
 	} else {
 		// Run locally. Start goroutine that explores the directories
-		ops, prog = dirtree.Build(flag.Arg(0))
+		ops, prog = dirtree.Build(flag.Arg(0), true)
 	}
 
 	_, area, progressLabel := makeUi()

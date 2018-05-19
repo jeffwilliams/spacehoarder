@@ -1,4 +1,4 @@
-package ui
+package spacehoarder
 
 import "fmt"
 

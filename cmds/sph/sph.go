@@ -17,7 +17,6 @@ import (
 var useOldDrawFlag = flag.Bool("olddraw", false, "Use the old draw implementation")
 
 var app views.Application
-
 var status *views.Text
 
 func setStatus(s string, args ...interface{}) {
@@ -116,6 +115,16 @@ func main() {
 
 	flag.Parse()
 
+	rootPath := "."
+
+	// Test if getting device id is supported
+	id, err := sh.GetFsDevId(rootPath)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	fmt.Printf("Id: %v\n", id)
+
 	screen, err := tcell.NewScreen()
 	if err != nil {
 		fmt.Printf("terminal initialization failed: %v\n", err)
@@ -143,7 +152,7 @@ func main() {
 	app.SetRootWidget(panel)
 
 	/*** Build dirtree ***/
-	ops, prog := dt.Build(".")
+	ops, prog := dt.Build(rootPath, true)
 	go ApplyAll(screen, dtw.dt, &dtw.Mutex, ops)
 	go drop(prog)
 	/*** End build dirtree ***/

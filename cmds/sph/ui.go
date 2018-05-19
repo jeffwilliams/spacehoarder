@@ -180,8 +180,12 @@ func (w *DirtreeWidget) draw() {
 	w.Mutex.Lock()
 	defer w.Mutex.Unlock()
 
-	if w.selectedNode == nil && w.dt.Root != nil {
+	if w.selectedNode == nil && w.dt.Root != nil && len(w.dt.Root.Children) > 0 {
 		w.selectedNode = w.dt.Root.Child(0).(*dt.Node)
+	}
+
+	if w.selectedNode == nil {
+		return
 	}
 
 	debugOrigSelectedNode := w.selectedNode
@@ -214,16 +218,6 @@ func (w *DirtreeWidget) draw() {
 		ViewPrint(&ctx, " %s", n.Dir.Basename)
 	}
 
-	/*
-		New algorithm to implement:
-
-		1. Make sure the selected row is within the screen. If not, clamp it to the screen.
-		2. Print the lines above the selected row: do a reverse, post-order tree walk of the dirtree,
-			 starting at the selected node, until there are no more rows above the selected row to draw.
-		4. Print the lines from the selected row and after: do a forward, pre-order tree walk of the dirtree,
-			 starting at the selected node, until there are no more rows below the selected row to draw.
-	*/
-
 	w.clampSelectedRow()
 
 	y := w.selectedRow - 1
@@ -248,10 +242,6 @@ func (w *DirtreeWidget) draw() {
 
 		if y == w.selectedRow {
 			ctx.Style = ctx.Style.Background(tcell.ColorBlue)
-			// debug:
-			if w.selectedNode == nil {
-				ctx.Style = ctx.Style.Background(tcell.ColorRed)
-			}
 		} else {
 			ctx.Style = tcell.StyleDefault
 		}
@@ -392,7 +382,6 @@ func (w *DirtreeWidget) HandleEvent(ev tcell.Event) bool {
 			}
 			return true
 		case tcell.KeyCR:
-			setStatus("debug: you hit enter")
 			if w.selectedNode != nil {
 				w.Mutex.Lock()
 				flags := treeNodeFlags(w.selectedNode)

@@ -162,7 +162,7 @@ func (n *Node) GetParent() tree.Tree {
 }
 
 func (n *Node) Depth() int {
-	if n.Parent != nil {
+	if n != nil && n.Parent != nil {
 		return n.Parent.Depth() + 1
 	} else {
 		return 0
