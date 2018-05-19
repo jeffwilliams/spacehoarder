@@ -14,8 +14,6 @@ import (
 	dt "github.com/jeffwilliams/spacehoarder/dirtree"
 )
 
-var useOldDrawFlag = flag.Bool("olddraw", false, "Use the old draw implementation")
-
 var app views.Application
 var status *views.Text
 
@@ -26,21 +24,6 @@ func setStatus(s string, args ...interface{}) {
 	}
 }
 
-/*
-func BuildSampleDirtree() (tree *dt.Dirtree) {
-	tree = &dt.Dirtree{Root: &dt.Node{Dir: dt.Directory{"/tmp", "tmp", 100}, SortChildren: true}}
-
-	n := tree.Root.Add(&dt.Node{Dir: dt.Directory{"/tmp/stuff", "stuff", 60}})
-	n.Add(&dt.Node{Dir: dt.Directory{"/tmp/stuff/dir2", "dir2", 20}})
-	n.Add(&dt.Node{Dir: dt.Directory{"/tmp/stuff/dir1", "dir1", 1040}})
-
-	n = tree.Root.Add(&dt.Node{Dir: dt.Directory{"/tmp/things", "things", 40}})
-	n.Add(&dt.Node{Dir: dt.Directory{"/tmp/stuff/pics", "pics", 20}})
-	n = n.Add(&dt.Node{Dir: dt.Directory{"/tmp/stuff/music", "music", 20}})
-	n.Add(&dt.Node{Dir: dt.Directory{"/tmp/stuff/music/old", "old", 10}})
-	return
-}
-*/
 type DirtreeOpEvent struct {
 	dt.OpData
 	Time time.Time
@@ -118,12 +101,11 @@ func main() {
 	rootPath := "."
 
 	// Test if getting device id is supported
-	id, err := sh.GetFsDevId(rootPath)
+	_, err := sh.GetFsDevId(rootPath)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-	fmt.Printf("Id: %v\n", id)
 
 	screen, err := tcell.NewScreen()
 	if err != nil {

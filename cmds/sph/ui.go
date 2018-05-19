@@ -155,11 +155,7 @@ func NewDirtreeWidget(screen tcell.Screen) *DirtreeWidget {
 }
 
 func (w *DirtreeWidget) Draw() {
-	if *useOldDrawFlag {
-		w.drawOld()
-	} else {
-		w.draw()
-	}
+	w.draw()
 }
 
 func (w *DirtreeWidget) clampSelectedRow() {
