@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"runtime/debug"
 	"sync"
@@ -13,6 +14,8 @@ import (
 	sh "github.com/jeffwilliams/spacehoarder"
 	dt "github.com/jeffwilliams/spacehoarder/dirtree"
 )
+
+var optDebugFileName = flag.String("dbgfile", "", "File to print debug info into")
 
 var app views.Application
 var status *views.Text
@@ -97,6 +100,16 @@ func drop(prog chan string) {
 func main() {
 
 	flag.Parse()
+
+	if *optDebugFileName != "" {
+		f, err := os.Create(*optDebugFileName)
+		if err != nil {
+			fmt.Printf("opening debug file failed: %v\n", err)
+			return
+
+		}
+		log.SetOutput(f)
+	}
 
 	rootPath := "."
 

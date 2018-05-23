@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 
@@ -134,23 +135,23 @@ func updateHiddenFlagOnDescendants(n *dt.Node) {
 }
 
 type DirtreeWidget struct {
-	dt        *dt.Dirtree
-	view      views.View
-	listeners map[tcell.EventHandler]interface{}
-	//damper    *DrawDampener
+	views.WidgetWatchers
+	dt   *dt.Dirtree
+	view views.View
 	// mutex protects dt.
 	Mutex        sync.Mutex
 	selectedNode *dt.Node
 	selectedRow  int
+	// first and last node in the window
+	firstNode, lastNode *dt.Node
 }
 
 func NewDirtreeWidget(screen tcell.Screen) *DirtreeWidget {
 	dt := dt.New()
 	dt.SortChildren = true
 	return &DirtreeWidget{
-		dt:        dt,
-		listeners: make(map[tcell.EventHandler]interface{}),
-		//damper: NewDrawDampener(screen),
+		dt: dt,
+		//listeners: make(map[tcell.EventHandler]interface{}),
 	}
 }
 
@@ -216,6 +217,9 @@ func (w *DirtreeWidget) draw() {
 
 	w.clampSelectedRow()
 
+	w.firstNode = nil
+	w.lastNode = nil
+
 	y := w.selectedRow - 1
 	delta := -1
 	_, maxY := w.view.Size()
@@ -245,11 +249,20 @@ func (w *DirtreeWidget) draw() {
 		printNode(n, depth, y)
 
 		y += delta
+		if delta < 0 {
+			w.firstNode = n
+		} else {
+			w.lastNode = n
+		}
 
 		return
 	}
 
 	tree.Walk(w.selectedNode, visitor, tree.Reverse, tree.PostOrder, w.selectedNode.Depth()-1, true)
+	if w.firstNode == nil {
+		// Nothing above selected row
+		w.firstNode = w.selectedNode
+	}
 
 	y = w.selectedRow
 	delta = 1
@@ -265,46 +278,9 @@ func (w *DirtreeWidget) draw() {
 
 }
 
-func (w DirtreeWidget) drawOld() {
-	if w.dt == nil || w.view == nil {
-		return
-	}
-
-	w.view.Clear()
-
-	ctx := TcellPrintContext{
-		View:  w.view,
-		Style: tcell.StyleDefault,
-		X:     0,
-		Y:     0,
-	}
-
-	_, maxY := w.view.Size()
-
-	visitor := func(n *dt.Node, depth int) (cont, skipChildren bool) {
-		cont = true
-		if n == w.dt.Root {
-			return
-		}
-
-		ctx.X = 0
-		ctx = ViewPrint(&ctx, "%s+ ", strings.Repeat(" ", depth*2))
-		ctx.Style = ctx.Style.Foreground(tcell.Color(172))
-		ctx = ViewPrint(&ctx, "[%s]", sh.FancySize(n.Dir.Size))
-		ctx.Style = tcell.StyleDefault
-		ViewPrint(&ctx, " %s", n.Dir.Basename)
-		ctx.Y += 1
-
-		if ctx.Y >= maxY {
-			cont = false
-		}
-		return
-	}
-
-	w.dt.Root.Walk(visitor, -1)
-}
-
-func (w DirtreeWidget) Resize() {
+func (w *DirtreeWidget) Resize() {
+	log.Printf("DirtreeWidget.Resize called\n")
+	w.WidgetWatchers.PostEventWidgetResize(w)
 }
 
 func (w *DirtreeWidget) nodeBelow() *dt.Node {
@@ -413,13 +389,11 @@ func (w *DirtreeWidget) SetView(view views.View) {
 }
 
 func (w DirtreeWidget) Size() (int, int) {
-	return w.view.Size()
-}
-
-func (w *DirtreeWidget) Watch(handler tcell.EventHandler) {
-	w.listeners[handler] = nil
-}
-
-func (w DirtreeWidget) Unwatch(handler tcell.EventHandler) {
-	delete(w.listeners, handler)
+	//return w.view.Size()
+	/* We return the desired size as 0,0 here so that we take up
+	available space in the parent panel (box layout). If we return
+	the view size here then on resize we demand as much space as
+	we were previously using which forces the panel to stay large
+	(if we are resizing smaller) */
+	return 0, 0
 }
