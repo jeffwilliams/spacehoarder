@@ -374,6 +374,22 @@ func (w *DirtreeWidget) HandleEvent(ev tcell.Event) bool {
 				w.selectedRow = 0
 			}
 			w.Mutex.Unlock()
+		case tcell.KeyEnd:
+			w.Mutex.Lock()
+			last := (*dt.Node)(nil)
+			visitor := func(t tree.Tree, depth int) (cont bool) {
+				last = t.(*dt.Node)
+				if treeNodeFlags(last)&TreeNodeFlagHidden == 0 && last != w.selectedNode {
+					w.selectedRow += 1
+				}
+				return true
+			}
+			tree.Walk(w.selectedNode, visitor, tree.Forward, tree.PreOrder, w.selectedNode.Depth()-1, false)
+			w.Mutex.Unlock()
+			w.clampSelectedRow()
+			if last != nil {
+				w.selectedNode = last
+			}
 		}
 	case *DirtreeDrawEvent:
 		return true
