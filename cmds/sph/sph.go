@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"runtime/debug"
@@ -109,6 +110,9 @@ func main() {
 
 		}
 		log.SetOutput(f)
+	} else {
+		log.SetFlags(0)
+		log.SetOutput(ioutil.Discard)
 	}
 
 	rootPath := "."
