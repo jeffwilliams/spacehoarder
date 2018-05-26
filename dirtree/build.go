@@ -24,6 +24,7 @@ type OpData struct {
 	Basename     string
 	Size         int64
 	SizeAccurate bool
+	Type         PathType
 }
 
 // Filesystem is an abstraction of a filesystem used by BuildFs.
@@ -55,38 +56,50 @@ func (r OsFilesystem) DeviceId(path string) (id uint64, err error) {
 	return sh.GetFsDevId(path)
 }
 
+type BuildOpts struct {
+	// If the walk would cross into another filesystem, do not traverse it.
+	OneFs bool
+	// Include files in the output.
+	IncludeFiles bool
+}
+
+var DefaultBuildOpts = &BuildOpts{
+	OneFs:        true,
+	IncludeFiles: false,
+}
+
 // Build builds a new Dirtree starting from the specified directory `basepath` and writes all
 // the operations performed to the Dirtree to the ops channel so that a copy of the Dirtree can be
 // made in a different goroutine. The paths processed are written to the channel prog.
-func Build(basepath string, oneFs bool) (ops chan OpData, prog chan string) {
-	return BuildFs(OsFilesystem{}, basepath, oneFs)
+func Build(basepath string, opts *BuildOpts) (ops chan OpData, prog chan string) {
+	return BuildFs(OsFilesystem{}, basepath, opts)
 }
 
 // BuildFs builds a new Dirtree starting from the specified directory `basepath` and writes all
 // the operations performed to the Dirtree to the ops channel so that a copy of the Dirtree can be
 // made in a different goroutine. The paths processed are written to the channel prog.
 // The Filesystem fs is used for opening files.
-func BuildFs(fs Filesystem, basepath string, oneFs bool) (ops chan OpData, prog chan string) {
+func BuildFs(fs Filesystem, basepath string, opts *BuildOpts) (ops chan OpData, prog chan string) {
 
 	ops = make(chan OpData)
 	prog = make(chan string)
 
-	go build(fs, basepath, ops, prog, oneFs)
+	go build(fs, basepath, ops, prog, opts)
 
 	return
 }
 
 // BuildSync builds a new Dirtree starting from the specified directory `basepath` and returns it when
 // it's complete.
-func BuildSync(basepath string, oneFs bool) *Dirtree {
+func BuildSync(basepath string, opts *BuildOpts) *Dirtree {
 	ops := make(chan OpData)
-	go build(OsFilesystem{}, basepath, ops, nil, oneFs)
+	go build(OsFilesystem{}, basepath, ops, nil, opts)
 	tree := New()
 	tree.ApplyAll(ops)
 	return tree
 }
 
-func build(fs Filesystem, basepath string, ops chan OpData, prog chan string, oneFs bool) {
+func build(fs Filesystem, basepath string, ops chan OpData, prog chan string, opts *BuildOpts) {
 
 	if ops != nil {
 		defer close(ops)
@@ -104,7 +117,7 @@ func build(fs Filesystem, basepath string, ops chan OpData, prog chan string, on
 	work := make([]string, 0, 1000)
 
 	baseDevId, err := fs.DeviceId(basepath)
-	if oneFs && err != nil {
+	if opts.OneFs && err != nil {
 		return
 	}
 
@@ -133,10 +146,15 @@ func build(fs Filesystem, basepath string, ops chan OpData, prog chan string, on
 			fpath := path + string(os.PathSeparator) + fi.Name()
 
 			if fi.Mode().IsRegular() {
-				size += fi.Size()
+				if opts.IncludeFiles {
+					ops <- OpData{Op: Push, Size: fi.Size(), Path: fpath, Basename: filepath.Base(fpath), SizeAccurate: true, Type: PathTypeFile}
+					//ops <- OpData{Op: AddSize, Size: fi.Size(), SizeAccurate: true}
+				} else {
+					size += fi.Size()
+				}
 			} else if fi.IsDir() {
 
-				if oneFs {
+				if opts.OneFs {
 					devId, err := fs.DeviceId(fpath)
 
 					if err == nil && baseDevId != devId {
@@ -144,7 +162,7 @@ func build(fs Filesystem, basepath string, ops chan OpData, prog chan string, on
 					}
 				}
 
-				ops <- OpData{Op: Push, Path: fpath, Basename: filepath.Base(fpath), SizeAccurate: true}
+				ops <- OpData{Op: Push, Path: fpath, Basename: filepath.Base(fpath), SizeAccurate: true, Type: PathTypeDir}
 				work = append(work, fpath)
 			}
 

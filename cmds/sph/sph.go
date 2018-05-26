@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"runtime/debug"
-	"sync"
 	"time"
 
 	"flag"
@@ -20,6 +19,7 @@ var optDebugFileName = flag.String("dbgfile", "", "File to print debug info into
 
 var app views.Application
 var status *views.Text
+var keysHelpMsg = "[<enter>: expand/collapse][f: show/hide files][r: refresh]"
 
 func setStatus(s string, args ...interface{}) {
 	if status != nil {
@@ -50,52 +50,6 @@ type DirtreeDrawEvent time.Time
 
 func (e DirtreeDrawEvent) When() time.Time {
 	return time.Time(e)
-}
-
-func ApplyAll(screen tcell.Screen, t *dt.Dirtree, m *sync.Mutex, ops chan dt.OpData) {
-
-	ch := make(chan struct{})
-
-	go func() {
-		for _ = range ch {
-			de := DirtreeDrawEvent(time.Now())
-			screen.PostEvent(&de)
-			time.Sleep(1000 * time.Millisecond)
-		}
-	}()
-
-	for op := range ops {
-		m.Lock()
-		added := t.Apply(op)
-		if added != nil {
-			updateHiddenFlag(added)
-			setStatus("Processing %s", added.Dir.Path)
-		}
-		if added == t.Root {
-			// Root node is always expanded
-			setTreeNodeFlags(t.Root, treeNodeFlags(t.Root)|TreeNodeFlagExpanded)
-		}
-		m.Unlock()
-
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-	}
-
-	if t.Root != nil {
-		setStatus("Completed. Total %s", sh.FancySize(t.Root.Dir.Size))
-	} else {
-		setStatus("Completed. ")
-	}
-	de := DirtreeDrawEvent(time.Now())
-	screen.PostEvent(&de)
-}
-
-func drop(prog chan string) {
-	for _ = range prog {
-
-	}
 }
 
 func main() {
@@ -151,9 +105,10 @@ func main() {
 	app.SetRootWidget(panel)
 
 	/*** Build dirtree ***/
-	ops, prog := dt.Build(rootPath, true)
-	go ApplyAll(screen, dtw.dt, &dtw.Mutex, ops)
-	go drop(prog)
+	build(screen, dtw, nil, rootPath, nil, nil)
+	//ops, prog := dt.Build(rootPath, dt.DefaultBuildOpts)
+	//go ApplyAll(screen, dtw.dt, &dtw.Mutex, ops)
+	//go drop(prog)
 	/*** End build dirtree ***/
 
 	if e := app.Run(); e != nil {

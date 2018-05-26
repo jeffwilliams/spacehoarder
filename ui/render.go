@@ -109,7 +109,7 @@ func Render(template *gdk.Drawable, width, height int, blocks []squarify.Block, 
 
 		// Draw title
 		if block.TreeSizer != nil {
-			dir := &block.TreeSizer.(*dirtree.Node).Dir
+			dir := &block.TreeSizer.(*dirtree.Node).Info
 			style.TitleLayout.SetText(dir.Basename + " (" + sh.FancySize(dir.Size) + ")")
 			style.TitleLayout.SetWidth(w * pango.SCALE)
 			pixmap.GetDrawable().DrawLayout(gc, x+1, y+1, style.TitleLayout)

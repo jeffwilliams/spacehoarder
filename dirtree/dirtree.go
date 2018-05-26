@@ -1,6 +1,7 @@
 package dirtree
 
 import (
+	"log"
 	"sort"
 
 	"github.com/jeffwilliams/spacehoarder/tree"
@@ -10,7 +11,7 @@ import (
 // A node within a Dirtree. Note that the order of Children is not preserved when using operations below.
 type Node struct {
 	Parent   *Node
-	Dir      Directory
+	Info     PathInfo
 	Children []*Node
 	UserData interface{}
 	// SortChildren specifies whether the children of this node should be sorted from biggest to smallest.
@@ -20,7 +21,7 @@ type Node struct {
 func (n *Node) sortChildren() {
 	if n.SortChildren {
 		sort.SliceStable(n.Children, func(i, j int) bool {
-			return n.Children[i].Dir.Size > n.Children[j].Dir.Size
+			return n.Children[i].Info.Size > n.Children[j].Info.Size
 		})
 	}
 }
@@ -39,8 +40,13 @@ func (n *Node) add(child *Node, updateSize bool) {
 	child.SortChildren = n.SortChildren
 	n.sortChildren()
 	if updateSize {
-		n.addSize(child.Dir.Size, true)
+		n.addSize(child.Info.Size, true)
 	}
+}
+
+// Delete all children
+func (n *Node) DelAll() {
+	n.Children = n.Children[0:0]
 }
 
 // Del removes the specified child node from this node.
@@ -65,7 +71,7 @@ func (n *Node) del(child *Node, updateSize bool) {
 			n.Children = n.Children[0 : len(n.Children)-1]
 
 			if updateSize {
-				n.addSize(-v.Dir.Size, true)
+				n.addSize(-v.Info.Size, true)
 			}
 			break
 		}
@@ -75,15 +81,15 @@ func (n *Node) del(child *Node, updateSize bool) {
 
 // UpdateSize updates the size of the directory in the node, and updates the size of the ancestors as well.
 func (n *Node) UpdateSize(size int64, sizeAccurate bool) {
-	delta := size - n.Dir.Size
+	delta := size - n.Info.Size
 	n.addSize(delta, sizeAccurate)
 }
 
 // Add size bytes to the size of this node and all ancestors.
 func (n *Node) addSize(size int64, sizeAccurate bool) {
-	n.Dir.Size += size
-	if n.Dir.SizeAccurate {
-		n.Dir.SizeAccurate = sizeAccurate
+	n.Info.Size += size
+	if n.Info.SizeAccurate {
+		n.Info.SizeAccurate = sizeAccurate
 	}
 	if n.Parent != nil {
 		n.Parent.addSize(size, sizeAccurate)
@@ -129,7 +135,7 @@ func (n *Node) Walk(visitor Visitor, depth int) bool {
 
 // Needed to implement TreeSizer
 func (n *Node) Size() float64 {
-	return float64(n.Dir.Size)
+	return float64(n.Info.Size)
 }
 
 // Needed to implement TreeSizer
@@ -178,16 +184,20 @@ func (n *Node) Walk(visitor Visitor, depth int) {
 	}
 }
 */
-type applyContext struct {
+type ApplyContext struct {
 	curNode *Node
 	work    []*Node
+}
+
+func NewApplyContext(root *Node) *ApplyContext {
+	return &ApplyContext{curNode: root, work: make([]*Node, 0, 1000)}
 }
 
 // Dirtree is a directory tree where each node has a Size property that's the size of the contents of the directory
 // and all descendent directories.
 type Dirtree struct {
 	Root         *Node
-	applyCtx     applyContext
+	applyCtx     *ApplyContext
 	SortChildren bool
 }
 
@@ -197,19 +207,23 @@ func New() *Dirtree {
 }
 
 func (t *Dirtree) Apply(op OpData) (added *Node) {
-	if t.applyCtx.work == nil {
+	if t.applyCtx == nil {
 		// Directories to process
-		t.applyCtx.work = make([]*Node, 0, 1000)
+		t.applyCtx = NewApplyContext(nil)
 	}
+	return t.ApplyCtx(t.applyCtx, op)
+}
 
+func (t *Dirtree) ApplyCtx(ctx *ApplyContext, op OpData) (added *Node) {
 	push := func(op OpData) {
-		node := &Node{Dir: Directory{Path: op.Path, Basename: op.Basename, SizeAccurate: true}}
+		node := &Node{Info: PathInfo{Path: op.Path, Basename: op.Basename, SizeAccurate: true, Type: op.Type, Size: op.Size}}
 		added = node
 
+		log.Printf("Dirtree.ApplyCtx: push operation. Current Tree Node = %v. Operation data = %v\n", ctx.curNode, op)
 		// Push is used to add a child to the current tree node and also
 		// to add the root to the tree. We distinguish by checking if
 		// curNode is nil.
-		if t.applyCtx.curNode == nil {
+		if ctx.curNode == nil {
 			if t.Root != nil {
 				panic("Apply: curNode is nil but tree Root is not nil")
 			}
@@ -218,20 +232,29 @@ func (t *Dirtree) Apply(op OpData) (added *Node) {
 				t.Root.SortChildren = true
 			}
 		} else {
-			t.applyCtx.curNode.Add(node)
+			if op.Path != ctx.curNode.Info.Path {
+				log.Printf("Dirtree.ApplyCtx: push operation: adding op under current node\n")
+				ctx.curNode.Add(node)
+			} else {
+				node = ctx.curNode
+			}
 		}
 
-		t.applyCtx.work = append(t.applyCtx.work, node)
+		if op.Type != PathTypeFile {
+			ctx.work = append(ctx.work, node)
+		}
 	}
 
 	pop := func() {
-		t.applyCtx.curNode = t.applyCtx.work[len(t.applyCtx.work)-1]
-		t.applyCtx.work = t.applyCtx.work[0 : len(t.applyCtx.work)-1]
+		ctx.curNode = ctx.work[len(ctx.work)-1]
+		ctx.work = ctx.work[0 : len(ctx.work)-1]
+		log.Printf("Dirtree.ApplyCtx: pop operation. Current Tree Node after = %v\n", ctx.curNode)
 	}
 
 	addSize := func(op OpData) {
-		size := t.applyCtx.curNode.Dir.Size + op.Size
-		t.applyCtx.curNode.UpdateSize(size, op.SizeAccurate)
+		log.Printf("Dirtree.ApplyCtx: addSize operation. Current Tree Node = %v. Operation data = %v\n", ctx.curNode, op)
+		size := ctx.curNode.Info.Size + op.Size
+		ctx.curNode.UpdateSize(size, op.SizeAccurate)
 	}
 
 	switch op.Op {

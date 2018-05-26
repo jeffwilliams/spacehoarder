@@ -14,7 +14,7 @@ var optServer = flag.Bool("server", false, "For debugging. Run as a server and p
 var optHelp = flag.Bool("h", false, "Show help")
 
 func doclient(basedir string, addr string) {
-	ops, prog := dirtree.Build(basedir)
+	ops, prog := dirtree.Build(basedir, dirtree.DefaultBuildOpts)
 
 	opConn, err := net.Dial("tcp", addr)
 	if err != nil {

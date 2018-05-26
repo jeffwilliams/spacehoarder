@@ -1,5 +1,6 @@
 package tree
 
+// Tree represents an abstraction of a tree or node in a tree.
 type Tree interface {
 	GetParent() Tree
 	GetChild(i int) Tree

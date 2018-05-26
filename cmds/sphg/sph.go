@@ -59,7 +59,7 @@ func writeSvg(w io.Writer, blocks []squarify.Block) {
 		fmt.Fprintf(w, "  <rect x=\"%f\" y=\"%f\" width=\"%f\" height=\"%f\" style=\"fill:rgb(0,0,255);stroke-width:1;stroke:rgb(0,0,0)\"/>\n", b.X, b.Y, b.W, b.H)
 		name := "[files " + strconv.Itoa(filesNum) + "]"
 		if b.TreeSizer != nil {
-			name = b.TreeSizer.(*dirtree.Node).Dir.Basename
+			name = b.TreeSizer.(*dirtree.Node).Info.Basename
 		} else {
 			filesNum += 1
 		}
@@ -270,7 +270,7 @@ func main() {
 		}
 	} else {
 		// Run locally. Start goroutine that explores the directories
-		ops, prog = dirtree.Build(flag.Arg(0), true)
+		ops, prog = dirtree.Build(flag.Arg(0), dirtree.DefaultBuildOpts)
 	}
 
 	_, area, progressLabel := makeUi()
@@ -318,7 +318,7 @@ func main() {
 
 	ctx.complete = func(t *dirtree.Dirtree) {
 		if t.Root != nil {
-			lastFile = "Completed. Size: " + sh.FancySize(t.Root.Dir.Size)
+			lastFile = "Completed. Size: " + sh.FancySize(t.Root.Info.Size)
 		} else {
 			lastFile = "Completed. "
 		}

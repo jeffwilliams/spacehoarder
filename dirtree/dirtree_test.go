@@ -1,7 +1,6 @@
 package dirtree
 
 import (
-	"fmt"
 	"testing"
 )
 
@@ -25,7 +24,7 @@ func hasBasenames(a []*Node, names []string) bool {
 	for _, j := range names {
 		found := false
 		for _, i := range a {
-			if i.Dir.Basename == j {
+			if i.Info.Basename == j {
 				found = true
 				break
 			}
@@ -37,15 +36,17 @@ func hasBasenames(a []*Node, names []string) bool {
 	return true
 }
 
+/*
 func dumpOrigMap(t *Dirtree) {
 	for k, v := range t.origToCopy {
 		fmt.Printf("%p --> %p\n", k, v)
 	}
 }
+*/
 
 func childWithBasename(n *Node, name string) *Node {
 	for _, v := range n.Children {
-		if v.Dir.Basename == name {
+		if v.Info.Basename == name {
 			return v
 		}
 	}
@@ -53,7 +54,7 @@ func childWithBasename(n *Node, name string) *Node {
 }
 
 func TestNodeAdd(t *testing.T) {
-	p := &Node{Dir: Directory{Size: 20}}
+	p := &Node{Info: PathInfo{Size: 20}}
 
 	n1 := &Node{}
 
@@ -71,11 +72,11 @@ func TestNodeAdd(t *testing.T) {
 		t.Fatal("Adding node failed")
 	}
 
-	if p.Dir.Size != 20 {
-		t.Fatal("Adding node didn't update root size correctly. Root size:", p.Dir.Size)
+	if p.Info.Size != 20 {
+		t.Fatal("Adding node didn't update root size correctly. Root size:", p.Info.Size)
 	}
 
-	n2 := &Node{Dir: Directory{Size: 10}}
+	n2 := &Node{Info: PathInfo{Size: 10}}
 
 	p.Add(n2)
 
@@ -91,17 +92,17 @@ func TestNodeAdd(t *testing.T) {
 		t.Fatal("Adding node failed")
 	}
 
-	if p.Dir.Size != 30 {
-		t.Fatal("Adding node didn't update root size correctly. Root size:", p.Dir.Size)
+	if p.Info.Size != 30 {
+		t.Fatal("Adding node didn't update root size correctly. Root size:", p.Info.Size)
 	}
 }
 
 func TestNodeDel(t *testing.T) {
 	p := &Node{}
 
-	n1 := &Node{Dir: Directory{Size: 10}}
-	n2 := &Node{Dir: Directory{Size: 20}}
-	n3 := &Node{Dir: Directory{Size: 30}}
+	n1 := &Node{Info: PathInfo{Size: 10}}
+	n2 := &Node{Info: PathInfo{Size: 20}}
+	n3 := &Node{Info: PathInfo{Size: 30}}
 
 	// Make sure delete from empty parent doesn't panic
 	p.Del(n1)
@@ -114,8 +115,8 @@ func TestNodeDel(t *testing.T) {
 		t.Fatal("Deleting child from parent with single child failed. Num children=", len(p.Children))
 	}
 
-	if p.Dir.Size != 0 {
-		t.Fatal("Deleting child didn't update root size correctly. Root size is ", p.Dir.Size)
+	if p.Info.Size != 0 {
+		t.Fatal("Deleting child didn't update root size correctly. Root size is ", p.Info.Size)
 	}
 
 	p.Add(n1)
@@ -131,8 +132,8 @@ func TestNodeDel(t *testing.T) {
 		t.Fatal("Deleting child from parent with two children failed. Wrong child deleted.")
 	}
 
-	if p.Dir.Size != 20 {
-		t.Fatal("Deleting child didn't update root size correctly. Root size is ", p.Dir.Size)
+	if p.Info.Size != 20 {
+		t.Fatal("Deleting child didn't update root size correctly. Root size is ", p.Info.Size)
 	}
 
 	p.Del(n2)
@@ -153,8 +154,8 @@ func TestNodeDel(t *testing.T) {
 		t.Fatal("Deleting child from parent with two children failed. Wrong child deleted.")
 	}
 
-	if p.Dir.Size != 10 {
-		t.Fatal("Deleting child didn't update root size correctly. Root size is ", p.Dir.Size)
+	if p.Info.Size != 10 {
+		t.Fatal("Deleting child didn't update root size correctly. Root size is ", p.Info.Size)
 	}
 
 	p.Del(n1)
@@ -176,7 +177,7 @@ func TestNodeDel(t *testing.T) {
 		t.Fatal("Deleting child from parent with two children failed. Wrong child deleted.")
 	}
 
-	if p.Dir.Size != 40 {
-		t.Fatal("Deleting child didn't update root size correctly. Root size is ", p.Dir.Size)
+	if p.Info.Size != 40 {
+		t.Fatal("Deleting child didn't update root size correctly. Root size is ", p.Info.Size)
 	}
 }

@@ -66,12 +66,18 @@ func ViewPrint(ctx *TcellPrintContext, frmt string, args ...interface{}) (update
 	return
 }
 
+type NodeData struct {
+	flags TreeNodeFlags
+	files []string
+}
+
 type TreeNodeFlags uint8
 
 const (
 	TreeNodeFlagExpanded TreeNodeFlags = 1 << iota
 	// TreeNodeFlagVisible is false if an ancestor is not expanded.
 	TreeNodeFlagHidden
+	TreeNodeFlagFilesShown
 )
 
 var defaultTreeNodeFlags TreeNodeFlags
@@ -99,6 +105,16 @@ func (t *TreeNodeFlags) Unset(f TreeNodeFlags) TreeNodeFlags {
 
 func (t TreeNodeFlags) IsSet(f TreeNodeFlags) bool {
 	return (t & f) > 0
+}
+
+func SetTreeNodeFlag(n *dt.Node, f TreeNodeFlags) {
+	flags := treeNodeFlags(n)
+	setTreeNodeFlags(n, flags.Set(f))
+}
+
+func UnsetTreeNodeFlag(n *dt.Node, f TreeNodeFlags) {
+	flags := treeNodeFlags(n)
+	setTreeNodeFlags(n, flags.Unset(f))
 }
 
 func updateHiddenFlag(n *dt.Node) {
@@ -144,13 +160,15 @@ type DirtreeWidget struct {
 	selectedRow  int
 	// first and last node in the window
 	firstNode, lastNode *dt.Node
+	screen              tcell.Screen
 }
 
 func NewDirtreeWidget(screen tcell.Screen) *DirtreeWidget {
 	dt := dt.New()
 	dt.SortChildren = true
 	return &DirtreeWidget{
-		dt: dt,
+		dt:     dt,
+		screen: screen,
 		//listeners: make(map[tcell.EventHandler]interface{}),
 	}
 }
@@ -203,16 +221,19 @@ func (w *DirtreeWidget) draw() {
 		if treeNodeFlags(n)&TreeNodeFlagExpanded > 0 {
 			sym = "-"
 		}
+		if n.Info.Type == dt.PathTypeFile {
+			sym = "F"
+		}
 		ctx = ViewPrint(&ctx, "%s%s ", strings.Repeat(" ", depth*2), sym)
 		origStyle := ctx.Style
 		ctx.Style = ctx.Style.Foreground(tcell.Color(172))
 		acc := ""
-		if !n.Dir.SizeAccurate {
+		if !n.Info.SizeAccurate {
 			acc = "?"
 		}
-		ctx = ViewPrint(&ctx, "[%s%s]", sh.FancySize(n.Dir.Size), acc)
+		ctx = ViewPrint(&ctx, "[%s%s]", sh.FancySize(n.Info.Size), acc)
 		ctx.Style = origStyle
-		ViewPrint(&ctx, " %s", n.Dir.Basename)
+		ViewPrint(&ctx, " %s", n.Info.Basename)
 	}
 
 	w.clampSelectedRow()
@@ -325,6 +346,38 @@ func (w *DirtreeWidget) HandleEvent(ev tcell.Event) bool {
 			case 'Q', 'q':
 				app.Quit()
 				return true
+			case 'F', 'f':
+				if w.selectedNode != nil {
+					// Start a new set of goroutines that will build up the list of files under the
+					// selected node.
+					// Since we are recalculating the size, we set the current size to zero and let the
+					// operations recalculate it.
+					w.selectedNode.UpdateSize(0, true)
+					w.selectedNode.DelAll()
+					flags := treeNodeFlags(w.selectedNode)
+					// toggle
+					if flags.IsSet(TreeNodeFlagFilesShown) {
+						onAdd := func(n *dt.Node) {
+							UnsetTreeNodeFlag(n, TreeNodeFlagFilesShown)
+						}
+						build(w.screen, w, w.selectedNode, w.selectedNode.Info.Path, &dt.BuildOpts{IncludeFiles: false, OneFs: true}, onAdd)
+						UnsetTreeNodeFlag(w.selectedNode, TreeNodeFlagFilesShown)
+					} else {
+						onAdd := func(n *dt.Node) {
+							SetTreeNodeFlag(n, TreeNodeFlagFilesShown)
+						}
+						build(w.screen, w, w.selectedNode, w.selectedNode.Info.Path, &dt.BuildOpts{IncludeFiles: true, OneFs: true}, onAdd)
+						SetTreeNodeFlag(w.selectedNode, TreeNodeFlagFilesShown)
+					}
+				}
+				return true
+			case 'R', 'r':
+				if w.selectedNode != nil {
+					w.selectedNode.UpdateSize(0, true)
+					w.selectedNode.DelAll()
+					UnsetTreeNodeFlag(w.selectedNode, TreeNodeFlagFilesShown)
+					build(w.screen, w, w.selectedNode, w.selectedNode.Info.Path, &dt.BuildOpts{IncludeFiles: false, OneFs: true}, nil)
+				}
 			}
 		case tcell.KeyDown:
 			if w.selectedNode != nil {
@@ -358,9 +411,9 @@ func (w *DirtreeWidget) HandleEvent(ev tcell.Event) bool {
 				w.Mutex.Lock()
 				flags := treeNodeFlags(w.selectedNode)
 				if flags.IsSet(TreeNodeFlagExpanded) {
-					setTreeNodeFlags(w.selectedNode, flags.Unset(TreeNodeFlagExpanded))
+					UnsetTreeNodeFlag(w.selectedNode, TreeNodeFlagExpanded)
 				} else {
-					setTreeNodeFlags(w.selectedNode, flags.Set(TreeNodeFlagExpanded))
+					SetTreeNodeFlag(w.selectedNode, TreeNodeFlagExpanded)
 				}
 				updateHiddenFlagOnDescendants(w.selectedNode)
 				w.Mutex.Unlock()

@@ -77,6 +77,10 @@ func (t TestFs) Open(name string) (file File, err error) {
 	return f, nil
 }
 
+func (t TestFs) DeviceId(path string) (id uint64, err error) {
+	return 0, nil
+}
+
 func makeTestFs() TestFs {
 	/*
 	  "/tmp"
@@ -129,10 +133,10 @@ func TestBuild(t *testing.T) {
 
 	//tree := buildFs(fs, "/tmp", nil, nil)
 	ops := make(chan OpData)
-	go build(fs, "/tmp", ops, nil)
+	go build(fs, "/tmp", ops, nil, DefaultBuildOpts)
 
 	tree := New()
-	Apply(tree, ops)
+	tree.ApplyAll(ops)
 
 	expected := map[string]int64{
 		"tmp": 65,
@@ -143,17 +147,18 @@ func TestBuild(t *testing.T) {
 
 	detected := map[string]bool{}
 
-	tree.Root.Walk(func(n *Node) {
+	tree.Root.Walk(func(n *Node, depth int) (cont, skipChildren bool) {
 		//t.Logf("%s: %v\n", n.Dir.Path, n.Dir.Size)
-		size, ok := expected[n.Dir.Basename]
+		size, ok := expected[n.Info.Basename]
 		if !ok {
-			t.Fatal("Directory with name", n.Dir.Basename, "wasn't expected")
+			t.Fatal("Directory with name", n.Info.Basename, "wasn't expected")
 		}
-		if n.Dir.Size != size {
-			t.Fatal("Directory with name", n.Dir.Basename, "should have size", size, "but has size", n.Dir.Size)
+		if n.Info.Size != size {
+			t.Fatal("Directory with name", n.Info.Basename, "should have size", size, "but has size", n.Info.Size)
 		}
-		detected[n.Dir.Basename] = true
-	})
+		detected[n.Info.Basename] = true
+		return true, false
+	}, 0)
 
 	for k, _ := range expected {
 		if _, ok := detected[k]; !ok {
