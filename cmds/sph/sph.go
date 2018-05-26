@@ -19,7 +19,7 @@ var optDebugFileName = flag.String("dbgfile", "", "File to print debug info into
 
 var app views.Application
 var status *views.Text
-var keysHelpMsg = "[<enter>: expand/collapse][f: show/hide files][r: refresh]"
+var keysHelpMsg = "<enter>: expand/collapse  f: show/hide files  r: refresh"
 
 func setStatus(s string, args ...interface{}) {
 	if status != nil {
@@ -93,6 +93,7 @@ func main() {
 	}()
 
 	dtw := NewDirtreeWidget(screen)
+	dtw.ShowRoot = true
 
 	app.SetScreen(screen)
 
@@ -101,6 +102,10 @@ func main() {
 	status = views.NewText()
 	status.SetText("Welcome to spacehoarder")
 	panel.SetStatus(status)
+	help := views.NewText()
+	help.SetText(keysHelpMsg)
+	help.SetStyle(tcell.StyleDefault.Background(tcell.ColorBrown))
+	panel.SetMenu(help)
 
 	app.SetRootWidget(panel)
 

@@ -161,6 +161,7 @@ type DirtreeWidget struct {
 	// first and last node in the window
 	firstNode, lastNode *dt.Node
 	screen              tcell.Screen
+	ShowRoot            bool
 }
 
 func NewDirtreeWidget(screen tcell.Screen) *DirtreeWidget {
@@ -195,8 +196,12 @@ func (w *DirtreeWidget) draw() {
 	w.Mutex.Lock()
 	defer w.Mutex.Unlock()
 
-	if w.selectedNode == nil && w.dt.Root != nil && len(w.dt.Root.Children) > 0 {
-		w.selectedNode = w.dt.Root.Child(0).(*dt.Node)
+	if w.selectedNode == nil && w.dt.Root != nil {
+		if w.ShowRoot {
+			w.selectedNode = w.dt.Root
+		} else if len(w.dt.Root.Children) > 0 {
+			w.selectedNode = w.dt.Root.Child(0).(*dt.Node)
+		}
 	}
 
 	if w.selectedNode == nil {
@@ -253,9 +258,10 @@ func (w *DirtreeWidget) draw() {
 			return
 		}
 
-		if n == w.dt.Root {
+		if n == w.dt.Root && !w.ShowRoot {
 			return
 		}
+
 		if y < 0 || y >= maxY {
 			cont = false
 			return
@@ -279,7 +285,12 @@ func (w *DirtreeWidget) draw() {
 		return
 	}
 
-	tree.Walk(w.selectedNode, visitor, tree.Reverse, tree.PostOrder, w.selectedNode.Depth()-1, true)
+	depth := w.selectedNode.Depth()
+	if !w.ShowRoot {
+		depth -= 1
+	}
+
+	tree.Walk(w.selectedNode, visitor, tree.Reverse, tree.PostOrder, depth, true)
 	if w.firstNode == nil {
 		// Nothing above selected row
 		w.firstNode = w.selectedNode
@@ -288,7 +299,7 @@ func (w *DirtreeWidget) draw() {
 	y = w.selectedRow
 	delta = 1
 
-	tree.Walk(w.selectedNode, visitor, tree.Forward, tree.PreOrder, w.selectedNode.Depth()-1, false)
+	tree.Walk(w.selectedNode, visitor, tree.Forward, tree.PreOrder, depth, false)
 
 	if debugOrigSelectedNode != w.selectedNode {
 		ctx.X = 0
@@ -322,7 +333,12 @@ func (w *DirtreeWidget) nodeAbove() *dt.Node {
 		prv := nxt
 		nxt = tree.Next(nxt, tree.Reverse, tree.PostOrder)
 
-		if nxt.(*dt.Node) == w.dt.Root {
+		if nxt == nil && w.ShowRoot {
+			nxt = prv
+			break
+		}
+
+		if nxt.(*dt.Node) == w.dt.Root && !w.ShowRoot {
 			nxt = prv
 			break
 		}
@@ -423,7 +439,11 @@ func (w *DirtreeWidget) HandleEvent(ev tcell.Event) bool {
 		case tcell.KeyHome:
 			w.Mutex.Lock()
 			if w.dt.Root != nil {
-				w.selectedNode = w.dt.Root.Child(0).(*dt.Node)
+				if w.ShowRoot {
+					w.selectedNode = w.dt.Root
+				} else {
+					w.selectedNode = w.dt.Root.Child(0).(*dt.Node)
+				}
 				w.selectedRow = 0
 			}
 			w.Mutex.Unlock()
