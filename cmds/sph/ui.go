@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 
@@ -162,6 +163,8 @@ type DirtreeWidget struct {
 	firstNode, lastNode *dt.Node
 	screen              tcell.Screen
 	ShowRoot            bool
+	toDelete            *dt.Node
+	savedStatus         string
 }
 
 func NewDirtreeWidget(screen tcell.Screen) *DirtreeWidget {
@@ -353,117 +356,179 @@ func (w *DirtreeWidget) nodeAbove() *dt.Node {
 	return nxt.(*dt.Node)
 }
 
+func (w *DirtreeWidget) refresh() {
+	if w.selectedNode != nil {
+		w.selectedNode.UpdateSize(0, true)
+		w.selectedNode.DelAll()
+		UnsetTreeNodeFlag(w.selectedNode, TreeNodeFlagFilesShown)
+		build(w.screen, w, w.selectedNode, w.selectedNode.Info.Path, &dt.BuildOpts{IncludeFiles: false, OneFs: true}, nil)
+	}
+}
+
+func (w *DirtreeWidget) toggleFiles() {
+	if w.selectedNode != nil && w.selectedNode.Info.Type == dt.PathTypeDir {
+		// Start a new set of goroutines that will build up the list of files under the
+		// selected node.
+		// Since we are recalculating the size, we set the current size to zero and let the
+		// operations recalculate it.
+		w.selectedNode.UpdateSize(0, true)
+		w.selectedNode.DelAll()
+		flags := treeNodeFlags(w.selectedNode)
+		// toggle
+		if flags.IsSet(TreeNodeFlagFilesShown) {
+			onAdd := func(n *dt.Node) {
+				UnsetTreeNodeFlag(n, TreeNodeFlagFilesShown)
+			}
+			build(w.screen, w, w.selectedNode, w.selectedNode.Info.Path, &dt.BuildOpts{IncludeFiles: false, OneFs: true}, onAdd)
+			UnsetTreeNodeFlag(w.selectedNode, TreeNodeFlagFilesShown)
+		} else {
+			onAdd := func(n *dt.Node) {
+				SetTreeNodeFlag(n, TreeNodeFlagFilesShown)
+			}
+			build(w.screen, w, w.selectedNode, w.selectedNode.Info.Path, &dt.BuildOpts{IncludeFiles: true, OneFs: true}, onAdd)
+			SetTreeNodeFlag(w.selectedNode, TreeNodeFlagFilesShown)
+		}
+	}
+}
+
+func (w *DirtreeWidget) toggleExpanded() {
+	if w.selectedNode != nil {
+		w.Mutex.Lock()
+		flags := treeNodeFlags(w.selectedNode)
+		if flags.IsSet(TreeNodeFlagExpanded) {
+			UnsetTreeNodeFlag(w.selectedNode, TreeNodeFlagExpanded)
+		} else {
+			SetTreeNodeFlag(w.selectedNode, TreeNodeFlagExpanded)
+		}
+		updateHiddenFlagOnDescendants(w.selectedNode)
+		w.Mutex.Unlock()
+	}
+}
+
+func (w *DirtreeWidget) selectNext() {
+	if w.selectedNode != nil {
+		w.Mutex.Lock()
+
+		nxt := w.nodeBelow()
+		if nxt != nil && w.selectedNode != nxt {
+			w.selectedNode = nxt
+			w.selectedRow += 1
+			w.clampSelectedRow()
+		}
+		w.Mutex.Unlock()
+	}
+}
+
+func (w *DirtreeWidget) selectPrev() {
+	if w.selectedNode != nil {
+		w.Mutex.Lock()
+
+		nxt := w.nodeAbove()
+		if nxt != nil {
+			w.selectedNode = nxt
+			//setStatus("debug: set selected to %p %v (root is %p %v)", w.selectedNode, w.selectedNode, w.dt.Root, w.dt.Root)
+		}
+		w.selectedRow -= 1
+		w.clampSelectedRow()
+		w.Mutex.Unlock()
+	}
+}
+
+func (w *DirtreeWidget) selectFirst() {
+	w.Mutex.Lock()
+	if w.dt.Root != nil {
+		if w.ShowRoot {
+			w.selectedNode = w.dt.Root
+		} else {
+			w.selectedNode = w.dt.Root.Child(0).(*dt.Node)
+		}
+		w.selectedRow = 0
+	}
+	w.Mutex.Unlock()
+
+}
+func (w *DirtreeWidget) selectLast() {
+	w.Mutex.Lock()
+	last := (*dt.Node)(nil)
+	visitor := func(t tree.Tree, depth int) (cont bool) {
+		last = t.(*dt.Node)
+		if treeNodeFlags(last)&TreeNodeFlagHidden == 0 && last != w.selectedNode {
+			w.selectedRow += 1
+		}
+		return true
+	}
+	tree.Walk(w.selectedNode, visitor, tree.Forward, tree.PreOrder, w.selectedNode.Depth()-1, false)
+	w.Mutex.Unlock()
+	w.clampSelectedRow()
+	if last != nil {
+		w.selectedNode = last
+	}
+
+}
+
 func (w *DirtreeWidget) HandleEvent(ev tcell.Event) bool {
+	unstageDelete := func() {
+		log.Println("Delete not confirmed")
+		w.toDelete = nil
+		if w.savedStatus != "" {
+			setStatus(w.savedStatus)
+			w.savedStatus = ""
+		}
+	}
+
 	switch ev := ev.(type) {
 	case *tcell.EventKey:
+		handled := true
 		switch ev.Key() {
 		case tcell.KeyRune:
 			switch ev.Rune() {
 			case 'Q', 'q':
 				app.Quit()
-				return true
 			case 'F', 'f':
-				if w.selectedNode != nil {
-					// Start a new set of goroutines that will build up the list of files under the
-					// selected node.
-					// Since we are recalculating the size, we set the current size to zero and let the
-					// operations recalculate it.
-					w.selectedNode.UpdateSize(0, true)
-					w.selectedNode.DelAll()
-					flags := treeNodeFlags(w.selectedNode)
-					// toggle
-					if flags.IsSet(TreeNodeFlagFilesShown) {
-						onAdd := func(n *dt.Node) {
-							UnsetTreeNodeFlag(n, TreeNodeFlagFilesShown)
-						}
-						build(w.screen, w, w.selectedNode, w.selectedNode.Info.Path, &dt.BuildOpts{IncludeFiles: false, OneFs: true}, onAdd)
-						UnsetTreeNodeFlag(w.selectedNode, TreeNodeFlagFilesShown)
+				w.toggleFiles()
+			case 'R', 'r':
+				w.refresh()
+			case 'Y', 'y':
+				if w.toDelete != nil {
+					setStatus(w.savedStatus)
+					parent := w.selectedNode.Parent
+					// Do delete
+					// TODO: handle error somehow
+					go os.RemoveAll(w.toDelete.Info.Path)
+					if parent != nil {
+						w.selectedNode = parent
+						w.refresh()
 					} else {
-						onAdd := func(n *dt.Node) {
-							SetTreeNodeFlag(n, TreeNodeFlagFilesShown)
-						}
-						build(w.screen, w, w.selectedNode, w.selectedNode.Info.Path, &dt.BuildOpts{IncludeFiles: true, OneFs: true}, onAdd)
-						SetTreeNodeFlag(w.selectedNode, TreeNodeFlagFilesShown)
+						// Nothing left?
+						w.selectedNode = nil
 					}
 				}
-				return true
-			case 'R', 'r':
-				if w.selectedNode != nil {
-					w.selectedNode.UpdateSize(0, true)
-					w.selectedNode.DelAll()
-					UnsetTreeNodeFlag(w.selectedNode, TreeNodeFlagFilesShown)
-					build(w.screen, w, w.selectedNode, w.selectedNode.Info.Path, &dt.BuildOpts{IncludeFiles: false, OneFs: true}, nil)
-				}
+			default:
+				handled = false
 			}
 		case tcell.KeyDown:
-			if w.selectedNode != nil {
-				w.Mutex.Lock()
-
-				nxt := w.nodeBelow()
-				if nxt != nil && w.selectedNode != nxt {
-					w.selectedNode = nxt
-					w.selectedRow += 1
-					w.clampSelectedRow()
-				}
-				w.Mutex.Unlock()
-			}
-			return true
+			w.selectNext()
 		case tcell.KeyUp:
-			if w.selectedNode != nil {
-				w.Mutex.Lock()
-
-				nxt := w.nodeAbove()
-				if nxt != nil {
-					w.selectedNode = nxt
-					//setStatus("debug: set selected to %p %v (root is %p %v)", w.selectedNode, w.selectedNode, w.dt.Root, w.dt.Root)
-				}
-				w.selectedRow -= 1
-				w.clampSelectedRow()
-				w.Mutex.Unlock()
-			}
-			return true
+			w.selectPrev()
 		case tcell.KeyCR:
-			if w.selectedNode != nil {
-				w.Mutex.Lock()
-				flags := treeNodeFlags(w.selectedNode)
-				if flags.IsSet(TreeNodeFlagExpanded) {
-					UnsetTreeNodeFlag(w.selectedNode, TreeNodeFlagExpanded)
-				} else {
-					SetTreeNodeFlag(w.selectedNode, TreeNodeFlagExpanded)
-				}
-				updateHiddenFlagOnDescendants(w.selectedNode)
-				w.Mutex.Unlock()
-			}
-			return true
-
+			w.toggleExpanded()
 		case tcell.KeyHome:
-			w.Mutex.Lock()
-			if w.dt.Root != nil {
-				if w.ShowRoot {
-					w.selectedNode = w.dt.Root
-				} else {
-					w.selectedNode = w.dt.Root.Child(0).(*dt.Node)
-				}
-				w.selectedRow = 0
-			}
-			w.Mutex.Unlock()
+			w.selectFirst()
 		case tcell.KeyEnd:
-			w.Mutex.Lock()
-			last := (*dt.Node)(nil)
-			visitor := func(t tree.Tree, depth int) (cont bool) {
-				last = t.(*dt.Node)
-				if treeNodeFlags(last)&TreeNodeFlagHidden == 0 && last != w.selectedNode {
-					w.selectedRow += 1
-				}
-				return true
-			}
-			tree.Walk(w.selectedNode, visitor, tree.Forward, tree.PreOrder, w.selectedNode.Depth()-1, false)
-			w.Mutex.Unlock()
-			w.clampSelectedRow()
-			if last != nil {
-				w.selectedNode = last
-			}
+			w.selectLast()
+		case tcell.KeyDelete:
+			defer func() {
+				w.toDelete = w.selectedNode
+				w.savedStatus = getStatus()
+				setStatus("Type 'y' to confirm delete")
+			}()
+		default:
+			handled = false
 		}
+		// User did not confirm delete
+		unstageDelete()
+		return handled
+
 	case *DirtreeDrawEvent:
 		return true
 	case *DirtreeProgEvent:

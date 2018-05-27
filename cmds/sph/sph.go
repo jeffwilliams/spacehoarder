@@ -27,6 +27,9 @@ func setStatus(s string, args ...interface{}) {
 		status.SetText(msg)
 	}
 }
+func getStatus() string {
+	return status.Text()
+}
 
 type DirtreeOpEvent struct {
 	dt.OpData
