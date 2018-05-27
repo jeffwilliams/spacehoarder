@@ -3,6 +3,7 @@ package dirtree
 import (
 	"log"
 	"sort"
+	"strings"
 
 	"github.com/jeffwilliams/spacehoarder/tree"
 	"github.com/jeffwilliams/squarify"
@@ -21,7 +22,11 @@ type Node struct {
 func (n *Node) sortChildren() {
 	if n.SortChildren {
 		sort.SliceStable(n.Children, func(i, j int) bool {
-			return n.Children[i].Info.Size > n.Children[j].Info.Size
+			cmp := n.Children[i].Info.Size - n.Children[j].Info.Size
+			if cmp == 0 {
+				cmp = int64(strings.Compare(n.Children[j].Info.Basename, n.Children[i].Info.Basename))
+			}
+			return cmp > 0
 		})
 	}
 }
