@@ -14,6 +14,19 @@ import (
 	"github.com/jeffwilliams/spacehoarder/tree"
 )
 
+var (
+	buildStatus  StatusPart
+	deleteStatus StatusPart
+	errorStatus  StatusPart
+	statusLine   StatusLine
+)
+
+func init() {
+	statusLine.Add(&buildStatus)
+	statusLine.Add(&deleteStatus)
+	statusLine.Add(&errorStatus)
+}
+
 type TcellPrintContext struct {
 	View  views.View
 	Style tcell.Style
@@ -165,16 +178,27 @@ type DirtreeWidget struct {
 	ShowRoot            bool
 	toDelete            *dt.Node
 	savedStatus         string
+	errStatus           StatusSetter
+	delStatus           StatusSetter
+	remove              chan *dt.Node
 }
 
-func NewDirtreeWidget(screen tcell.Screen) *DirtreeWidget {
-	dt := dt.New()
-	dt.SortChildren = true
-	return &DirtreeWidget{
-		dt:     dt,
-		screen: screen,
+func NewDirtreeWidget(screen tcell.Screen, errStatus, delStatus StatusSetter) *DirtreeWidget {
+	tree := dt.New()
+	tree.SortChildren = true
+
+	w := &DirtreeWidget{
+		dt:        tree,
+		screen:    screen,
+		errStatus: errStatus,
+		delStatus: delStatus,
+		remove:    make(chan *dt.Node),
 		//listeners: make(map[tcell.EventHandler]interface{}),
 	}
+
+	go w.remover()
+
+	return w
 }
 
 func (w *DirtreeWidget) Draw() {
@@ -466,14 +490,47 @@ func (w *DirtreeWidget) selectLast() {
 
 }
 
+// removeNodeAndPath removes the node from the tree and the path from the FS.
+// If removing fails, it's put back into the tree.
+func (w *DirtreeWidget) removeNodeAndPath(n *dt.Node) {
+	// Remove the node from the tree, but then set the node's parent field back to
+	// what it was. This is needed by the removed goroutine to later
+	// re-attach the node if needed.
+	w.Mutex.Lock()
+	parent := n.Parent
+	parent.Del(n)
+	n.Parent = parent
+	w.Mutex.Unlock()
+
+	select {
+	case w.remove <- n:
+	default:
+		// Deletion is in progress.
+		w.delStatus.SetStatus("Deleting failed: deletion is already in progress")
+		w.Mutex.Lock()
+		n.Parent.Add(n)
+		w.Mutex.Unlock()
+	}
+}
+
+func (w *DirtreeWidget) remover() {
+	for n := range w.remove {
+		err := os.RemoveAll(n.Info.Path)
+		if err != nil {
+			w.Mutex.Lock()
+			w.delStatus.SetStatus("Deleting failed: %v", err)
+			n.Parent.Add(n)
+			w.Mutex.Unlock()
+			// Rebuild the node in case some but not all of the descendants were deleted.
+			build(w.screen, w, n, n.Info.Path, &dt.BuildOpts{IncludeFiles: false, OneFs: true}, nil)
+		}
+	}
+}
+
 func (w *DirtreeWidget) HandleEvent(ev tcell.Event) bool {
 	unstageDelete := func() {
-		log.Println("Delete not confirmed")
 		w.toDelete = nil
-		if w.savedStatus != "" {
-			setStatus(w.savedStatus)
-			w.savedStatus = ""
-		}
+		w.delStatus.SetStatus("")
 	}
 
 	switch ev := ev.(type) {
@@ -490,18 +547,23 @@ func (w *DirtreeWidget) HandleEvent(ev tcell.Event) bool {
 				w.refresh()
 			case 'Y', 'y':
 				if w.toDelete != nil {
-					setStatus(w.savedStatus)
-					parent := w.selectedNode.Parent
-					// Do delete
-					// TODO: handle error somehow
-					go os.RemoveAll(w.toDelete.Info.Path)
-					if parent != nil {
+					w.delStatus.SetStatus("")
+					//parent := w.selectedNode.Parent
+					/*
+						// Do delete
+						// TODO: handle error somehow
+						go os.RemoveAll(w.toDelete.Info.Path)
+					*/
+					n := w.selectedNode
+					w.selectPrev()
+					w.removeNodeAndPath(n)
+					/*if parent != nil {
 						w.selectedNode = parent
 						w.refresh()
 					} else {
 						// Nothing left?
 						w.selectedNode = nil
-					}
+					}*/
 				}
 			default:
 				handled = false
@@ -519,8 +581,7 @@ func (w *DirtreeWidget) HandleEvent(ev tcell.Event) bool {
 		case tcell.KeyDelete:
 			defer func() {
 				w.toDelete = w.selectedNode
-				w.savedStatus = getStatus()
-				setStatus("Type 'y' to confirm delete")
+				w.delStatus.SetStatus("Type 'y' to confirm delete")
 			}()
 		default:
 			handled = false

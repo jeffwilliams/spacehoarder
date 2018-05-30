@@ -28,7 +28,7 @@ func ApplyAll(screen tcell.Screen, t *dt.Dirtree, root *dt.Node, m *sync.Mutex, 
 		added := t.ApplyCtx(ctx, op)
 		if added != nil {
 			updateHiddenFlag(added)
-			setStatus("Processing %s", added.Info.Path)
+			buildStatus.SetStatus("Processing %s", added.Info.Path)
 		}
 		if added == t.Root {
 			// Root node is always expanded
@@ -43,9 +43,9 @@ func ApplyAll(screen tcell.Screen, t *dt.Dirtree, root *dt.Node, m *sync.Mutex, 
 	}
 
 	if t.Root != nil {
-		setStatus("Completed. Total %s", sh.FancySize(t.Root.Info.Size))
+		buildStatus.SetStatus("Completed. Total %s", sh.FancySize(t.Root.Info.Size))
 	} else {
-		setStatus("Completed. ")
+		buildStatus.SetStatus("Completed. ")
 	}
 	de := DirtreeDrawEvent(time.Now())
 	screen.PostEvent(&de)

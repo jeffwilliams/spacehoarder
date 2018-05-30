@@ -21,16 +21,6 @@ var app views.Application
 var status *views.Text
 var keysHelpMsg = "<enter>: expand/collapse  f: show/hide files  r: refresh"
 
-func setStatus(s string, args ...interface{}) {
-	if status != nil {
-		msg := fmt.Sprintf(s, args...)
-		status.SetText(msg)
-	}
-}
-func getStatus() string {
-	return status.Text()
-}
-
 type DirtreeOpEvent struct {
 	dt.OpData
 	Time time.Time
@@ -95,7 +85,7 @@ func main() {
 		}
 	}()
 
-	dtw := NewDirtreeWidget(screen)
+	dtw := NewDirtreeWidget(screen, &errorStatus, &deleteStatus)
 	dtw.ShowRoot = true
 
 	app.SetScreen(screen)
@@ -104,6 +94,7 @@ func main() {
 	panel.SetContent(dtw)
 	status = views.NewText()
 	status.SetText("Welcome to spacehoarder")
+	statusLine.setter = status
 	panel.SetStatus(status)
 	help := views.NewText()
 	help.SetText(keysHelpMsg)
