@@ -15,13 +15,14 @@ import (
 )
 
 var (
-	buildStatus  StatusPart
-	deleteStatus StatusPart
-	errorStatus  StatusPart
+	buildStatus  statusPart
+	deleteStatus statusPart
+	errorStatus  statusPart
 	statusLine   StatusLine
 )
 
 func init() {
+	buildStatus.brackets = true
 	statusLine.Add(&buildStatus)
 	statusLine.Add(&deleteStatus)
 	statusLine.Add(&errorStatus)

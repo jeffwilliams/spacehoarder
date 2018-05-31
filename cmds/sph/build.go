@@ -43,9 +43,9 @@ func ApplyAll(screen tcell.Screen, t *dt.Dirtree, root *dt.Node, m *sync.Mutex, 
 	}
 
 	if t.Root != nil {
-		buildStatus.SetStatus("Completed. Total %s", sh.FancySize(t.Root.Info.Size))
+		buildStatus.SetStatus("Total %s", sh.FancySize(t.Root.Info.Size))
 	} else {
-		buildStatus.SetStatus("Completed. ")
+		buildStatus.SetStatus(".")
 	}
 	de := DirtreeDrawEvent(time.Now())
 	screen.PostEvent(&de)

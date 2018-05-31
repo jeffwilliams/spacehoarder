@@ -10,7 +10,7 @@ type TextSetter interface {
 }
 
 type StatusLine struct {
-	parts  []*StatusPart
+	parts  []StatusPart
 	setter TextSetter
 }
 
@@ -25,9 +25,9 @@ func (l StatusLine) String() string {
 	return buf.String()
 }
 
-func (l *StatusLine) Add(p *StatusPart) {
+func (l *StatusLine) Add(p StatusPart) {
 	l.parts = append(l.parts, p)
-	p.parent = l
+	p.OnChange(l)
 }
 
 func (l *StatusLine) changed() {
@@ -36,22 +36,40 @@ func (l *StatusLine) changed() {
 	}
 }
 
-type StatusPart struct {
-	text   string
-	parent *StatusLine
+type Changer interface {
+	changed()
 }
 
-func (p *StatusPart) SetStatus(s string, args ...interface{}) {
-	p.text = fmt.Sprintf(s, args...)
-	if p.parent != nil {
-		p.parent.changed()
-	}
+type StatusPart interface {
+	fmt.Stringer
+	OnChange(c Changer)
 }
 
-func (p *StatusPart) String() string {
-	return p.text
+type statusPart struct {
+	text     string
+	c        Changer
+	brackets bool
 }
 
 type StatusSetter interface {
 	SetStatus(s string, args ...interface{})
+}
+
+func (p *statusPart) SetStatus(s string, args ...interface{}) {
+	p.text = fmt.Sprintf(s, args...)
+	if p.c != nil {
+		p.c.changed()
+	}
+}
+
+func (p *statusPart) String() string {
+	if p.brackets {
+		return fmt.Sprintf("[%s]", p.text)
+	} else {
+		return p.text
+	}
+}
+
+func (p *statusPart) OnChange(c Changer) {
+	p.c = c
 }
