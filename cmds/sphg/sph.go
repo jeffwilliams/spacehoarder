@@ -246,7 +246,7 @@ func main() {
 	}
 
 	if flag.NArg() < 1 {
-		fmt.Println("Usage: sph <directory>")
+		fmt.Println("Usage: sphg <directory>")
 		os.Exit(1)
 	}
 
