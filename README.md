@@ -1,4 +1,6 @@
-SpaceHoarder
+# SpaceHoarder
+
+<a href="https://asciinema.org/a/187022" target="_blank"><img src="https://asciinema.org/a/187022.png" width="640"/></a>
 
 SpaceHoarder consists of two Linux tools to help locate and remove files that are taking up space on a harddrive:
 
