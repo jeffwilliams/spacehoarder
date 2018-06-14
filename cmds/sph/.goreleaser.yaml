@@ -1,0 +1,14 @@
+builds:
+  - binary: sph
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - 386
+nfpm:
+  homepage: https://github.com/jeffwilliams/spacehoarder
+  maintainer: Jeff Williams <jeff.williams@gmail.com>
+  description: Curses tool to find which directories are using the most space
+  formats:
+    - deb
+  
